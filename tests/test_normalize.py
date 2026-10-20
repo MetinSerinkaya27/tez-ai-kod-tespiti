@@ -54,7 +54,18 @@ def test_gecersiz_kod_none_doner():
 
 def test_markdown_blogundan_fonksiyon_cikarilir():
     text = "Iste cozum:\n```python\nimport os\n\n@dec\ndef g(a):\n    return a\n```\nUmarim yardimci olur."
-    assert extract_function(text, "g") == "@dec\ndef g(a):\n    return a\n"
+    assert extract_function(text, "g") == "def g(a):\n    return a\n"
+
+
+def test_csn_metot_girintisi_duzeltilir():
+    code = "def m(self, a,\n          b):\n        if a:\n            return b\n        return a\n"
+    out = normalize_code(code)
+    assert out == "def m(self, a,\n      b):\n    if a:\n        return b\n    return a\n"
+
+
+def test_iki_bosluk_girinti_korunur():
+    code = "def f(a):\n  if a:\n    return 1\n  return 2\n"
+    assert normalize_code(code) == code
 
 
 def test_sinif_icindeki_metot_cikarilir():

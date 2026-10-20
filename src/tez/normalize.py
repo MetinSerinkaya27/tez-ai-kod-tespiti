@@ -90,10 +90,45 @@ def strip_comments(code: str) -> str:
     return "\n".join(out) + "\n"
 
 
+def fix_first_line_indent(code: str) -> str:
+    """Yalnizca ilk satiri sola yaslanmis fonksiyonlarin govdesini yeniden girintiler.
+
+    CodeSearchNet metotlari kaynaktan kesilirken yalnizca "def" satirinin girintisi
+    atilmis; govde ve cok satirli imza eski girintiyi tasir. Bu artik birakilirsa
+    model uslup yerine veri kaynagini ogrenir.
+    """
+    tree = ast.parse(code)
+    if len(tree.body) != 1 or not isinstance(tree.body[0], _FUNC_TYPES):
+        return code
+    fn = tree.body[0]
+    lines = code.splitlines()
+    body_col = fn.body[0].col_offset
+    # Girinti birimi: govdedeki en kucuk pozitif ic ice girinti farki, yoksa 4.
+    cols = sorted({
+        n.col_offset for n in ast.walk(fn)
+        if isinstance(n, ast.stmt) and n is not fn and n.col_offset > body_col
+    })
+    unit = cols[0] - body_col if cols else 4
+    extra = body_col - unit
+    if extra <= 0:
+        return code
+    out = [lines[0]]
+    for line in lines[1:]:
+        lead = len(line) - len(line.lstrip(" "))
+        out.append(line[min(extra, lead):])
+    fixed = "\n".join(out) + "\n"
+    try:
+        ast.parse(fixed)
+    except SyntaxError:
+        return code
+    return fixed
+
+
 def normalize_code(code: str) -> str | None:
     """Docstring ve yorumlari temizler. Sonuc parse edilemiyorsa None doner."""
     try:
         code = textwrap.dedent(code.replace("\r\n", "\n").expandtabs(4))
+        code = fix_first_line_indent(code)
         code = strip_comments(strip_docstrings(code))
         # Ardisik bos satirlari teke indir; bastaki/sondaki bos satirlari at.
         code = re.sub(r"\n\s*\n(\s*\n)+", "\n\n", code).strip("\n") + "\n"
@@ -104,7 +139,7 @@ def normalize_code(code: str) -> str | None:
 
 
 def extract_function(text: str, func_name: str | None = None) -> str | None:
-    """LLM ciktisindan tek bir fonksiyon tanimini (dekoratorleriyle) cikarir.
+    """LLM ciktisindan tek bir fonksiyon tanimini cikarir.
 
     Once ```python``` blogu aranir; bulunamazsa metnin tamami denenir. func_name
     verilirse o isimdeki fonksiyon, yoksa ilk ust duzey fonksiyon alinir.
@@ -126,8 +161,8 @@ def extract_function(text: str, func_name: str | None = None) -> str | None:
         if not funcs:
             continue
         fn = funcs[0]
-        start = (fn.decorator_list[0].lineno if fn.decorator_list else fn.lineno) - 1
-        lines = block.splitlines()[start : fn.end_lineno]
+        # Dekoratorler atilir: CodeSearchNet kodlari dogrudan "def" ile basliyor.
+        lines = block.splitlines()[fn.lineno - 1 : fn.end_lineno]
         return textwrap.dedent("\n".join(lines)) + "\n"
     return None
 
