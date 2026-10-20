@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+models/
+outputs/
+mobile/node_modules/
+mobile/.expo/
+mobile/android/
+mobile/ios/
+CLAUDE.md
+.claude/

@@ -1,0 +1,42 @@
+[project]
+name = "tez"
+version = "0.1.0"
+description = "Yapay zeka kaynakli Python kodlarinin AST stilometrisi + CodeBERT ile tespiti ve XAI ile aciklanmasi"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pandas>=2.2",
+    "pyarrow>=17",
+    "requests>=2.32",
+    "tqdm>=4.66",
+    "numpy>=1.26",
+    "scikit-learn>=1.5",
+    "xgboost>=2.1",
+    "matplotlib>=3.9",
+    "torch>=2.5",
+    "transformers>=4.46",
+    "shap>=0.46",
+    "lime>=0.2.0.1",
+    "onnx>=1.17",
+    "onnxruntime>=1.20",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tez"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
