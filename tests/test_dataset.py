@@ -155,3 +155,18 @@ def test_check_splits_ihlalleri_yakalar():
 def test_gecersiz_oran_hata_verir():
     with pytest.raises(ValueError):
         assign_repos({"r": 1}, ratios=(0.5, 0.5, 0.5))
+
+
+def test_insana_cok_benzeyen_ai_ve_cifti_atilir():
+    from tez.dataset import drop_similar_pairs
+
+    recs = [
+        {"id": "a_h", "pair_id": "a", "code": "x", "label": 0},
+        {"id": "a_m", "pair_id": "a", "code": "x", "label": 1},
+        {"id": "b_h", "pair_id": "b", "code": "y", "label": 0},
+        {"id": "b_m", "pair_id": "b", "code": "z", "label": 1},
+    ]
+    sim = lambda h, a: 1.0 if h == a else 0.0
+    kept, n = drop_similar_pairs(recs, 0.8, sim)
+    assert n == 1
+    assert [r["id"] for r in kept] == ["b_h", "b_m"]

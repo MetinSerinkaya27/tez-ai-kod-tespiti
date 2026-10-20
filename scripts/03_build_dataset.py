@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import sys
 
+from tez.audit import pair_similarity
 from tez.dataset import (
     check_splits,
+    drop_similar_pairs,
     load_jsonl,
     pair_records,
     split_by_repo,
@@ -18,6 +20,7 @@ from tez.dataset import (
 from tez.paths import AI_JSONL, HUMAN_JSONL, SEED, TEST_JSONL, TRAIN_JSONL, VAL_JSONL
 
 OUTPUTS = {"train": TRAIN_JSONL, "val": VAL_JSONL, "test": TEST_JSONL}
+MAX_BODY_SIMILARITY = 0.8
 
 
 def main() -> None:
@@ -33,6 +36,13 @@ def main() -> None:
             print(f"  atilan {reason}: {n}")
     if not records:
         sys.exit("Eslesen kayit yok; ai.jsonl id'leri human.jsonl ile uyusmuyor olabilir.")
+
+    # Govdesi insan ciftine fazla benzeyen AI kodlari etiket gurultusudur (03b denetimi).
+    records, n_similar = drop_similar_pairs(
+        records, MAX_BODY_SIMILARITY,
+        lambda h, a: pair_similarity(h, a)["seq_ratio_body"],
+    )
+    print(f"  atilan ai_insana_cok_benzer (seq_ratio_body > {MAX_BODY_SIMILARITY}): {n_similar}")
 
     splits = split_by_repo(records, seed=SEED)
     check_splits(splits)

@@ -10,6 +10,7 @@ import json
 import random
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from pathlib import Path
 
 from tez.paths import SEED
@@ -117,6 +118,25 @@ def pair_records(human: list[dict], ai: list[dict]) -> tuple[list[dict], Counter
         len(m) for pid, m in ai_by_id.items() if pid not in seen_ids
     )
     return out, dropped
+
+
+def drop_similar_pairs(
+    records: list[dict], threshold: float, similarity: Callable[[str, str], float],
+) -> tuple[list[dict], int]:
+    """Insan cifti koduna fazla benzeyen AI kayitlarini atar (etiket gurultusu).
+
+    LLM, egitim verisinde gordugu insan kodunu neredeyse aynen yazmis olabilir;
+    boyle bir ornek "AI" etiketi tasisa da insan kodudur. AI karsiligi kalmayan
+    insan kaydi da atilir ki ciftler dengeli kalsin. Ikinci deger atilan AI sayisi.
+    """
+    human = {r["pair_id"]: r["code"] for r in records if r["label"] == 0}
+    bad = {
+        r["id"] for r in records
+        if r["label"] == 1 and similarity(human[r["pair_id"]], r["code"]) > threshold
+    }
+    kept = [r for r in records if r["id"] not in bad]
+    with_ai = {r["pair_id"] for r in kept if r["label"] == 1}
+    return [r for r in kept if r["pair_id"] in with_ai], len(bad)
 
 
 def assign_repos(
