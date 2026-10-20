@@ -23,6 +23,7 @@ from tez.paths import AI_JSONL, HUMAN_JSONL, SEED
 
 OLLAMA_URL = "http://localhost:11434"
 DEFAULT_MODEL = "deepseek-coder:6.7b-instruct"
+TEMPERATURES = (0.2, 0.5, 0.8, 1.0)
 
 # 01_build_human.py ile ayni satir sinirlari.
 MIN_LINES, MAX_LINES = 5, 60
@@ -171,7 +172,8 @@ def main() -> None:
     ap.add_argument("--per-repo", type=int, default=15, help="depo basina ust sinir")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--limit", type=int, default=None, help="deneme icin ilk K istem")
-    ap.add_argument("--temperature", type=float, default=0.7)
+    ap.add_argument("--temperature", type=float, default=None,
+                    help="sabit sicaklik; verilmezse ornek basina TEMPERATURES'tan secilir")
     ap.add_argument("--top-p", type=float, default=0.95)
     ap.add_argument("--max-tokens", type=int, default=2048)
     ap.add_argument("--timeout", type=float, default=300, help="istek basina saniye")
@@ -206,11 +208,15 @@ def main() -> None:
         bar = tqdm(todo, desc="ai")
         for rec in bar:
             # Ornek basina sabit tohum: ayni id ayni ciktiyi verir.
+            seed = int(rec["id"], 16) % (2**31)
+            # Tek bir ornekleme ayarinin uslubu ezberlenmesin diye sicaklik cesitlenir.
+            temperature = (args.temperature if args.temperature is not None
+                           else TEMPERATURES[seed % len(TEMPERATURES)])
             options = {
-                "temperature": args.temperature,
+                "temperature": temperature,
                 "top_p": args.top_p,
                 "num_predict": args.max_tokens,
-                "seed": int(rec["id"], 16) % (2**31),
+                "seed": seed,
             }
             base = {"id": rec["id"], "func_name": rec["func_name"],
                     "model": args.model, "repo": rec["repo"]}
