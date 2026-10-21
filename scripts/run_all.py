@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import json
+import os
 import subprocess
 import sys
 import time
@@ -22,6 +23,11 @@ RUN_STATE = DATA / "run_state.json"
 LOG = DATA / "run_all.log"
 
 PY = [sys.executable, "-u"]
+# Hugging Face modelleri (codebert, unixcoder, codegen) onbellekte; internet kopsa da
+# yuklensin diye agi hic denemeden calis.
+ENV = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+# Basarisiz olursa sonraki her seyi gecersiz kilan adimlar.
+CRITICAL = {"02_uretim", "03_veri_seti"}
 OLLAMA_MODELS = ("deepseek-coder:6.7b-instruct", "qwen2.5-coder:7b-instruct", "llama3.2:3b")
 
 # (ad, komut, her seferinde calissin mi). Uretim adimlari kendi ilerlemesini tuttugu
@@ -124,6 +130,7 @@ def main() -> None:
         log("Baska bir 02_generate_ai.py calisiyor; bitmesi bekleniyor (5 dk).")
         time.sleep(300)
 
+    failed = []
     for name, args, always in STEPS:
         if not always and state.get(name):
             log(f"atlandi (daha once bitti): {name}")
@@ -136,15 +143,24 @@ def main() -> None:
         if args is None:
             unload_ollama()
         else:
-            rc = subprocess.run(PY + args, cwd=ROOT).returncode
+            rc = subprocess.run(PY + args, cwd=ROOT, env=ENV).returncode
             if rc != 0:
-                log(f"HATA: {name} cikis kodu {rc}. Duzeltip ayni komutla devam edin.")
-                sys.exit(rc)
+                if name in CRITICAL:
+                    log(f"HATA: {name} cikis kodu {rc}. Sonraki adimlar buna bagli; durduruldu.")
+                    sys.exit(rc)
+                # Gozetimsiz gece calismasi: bagimsiz adimlar beklemesin. Bu adim
+                # bitti sayilmaz; ayni komut sonra yalnizca bunlari yeniden dener.
+                log(f"HATA: {name} cikis kodu {rc}; sonraki adima geciliyor.")
+                failed.append(name)
+                continue
         state[name] = datetime.now().isoformat(timespec="seconds")
         RUN_STATE.write_text(json.dumps(state, indent=2), encoding="utf-8")
         log(f"bitti: {name} ({(time.time() - t0) / 60:.1f} dk)")
 
-    log("Tum adimlar tamamlandi.")
+    if failed:
+        log(f"Bitti, ancak hata veren adimlar var: {', '.join(failed)}")
+    else:
+        log("Tum adimlar tamamlandi.")
 
 
 if __name__ == "__main__":
