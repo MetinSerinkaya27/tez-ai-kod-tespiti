@@ -55,6 +55,10 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="tum gorunumler icin max_features")
     ap.add_argument("--top", type=int, default=30, help="her yonde raporlanacak n-gram sayisi")
     ap.add_argument("--n-boot", type=int, default=1000)
+    ap.add_argument("--era-neutral", action="store_true",
+                    help="string sabitleri ve '%' bicimlendirmesi notrlestirilir (donemsiz model)")
+    ap.add_argument("--name", default=None,
+                    help="model/cikti dizini adi (varsayilan ngram, --era-neutral ile ngram_donemsiz)")
     return ap.parse_args(argv)
 
 
@@ -80,8 +84,9 @@ def doc_repo_counts(det, codes: list[str], labels, repos) -> dict[str, dict]:
 def main(argv=None) -> None:
     args = parse_args(argv)
     t0 = time.time()
-    model_dir = (args.out_dir / "models" / "ngram") if args.out_dir else MODELS / "ngram"
-    out = (args.out_dir / "outputs" / "ngram") if args.out_dir else OUTPUTS / "ngram"
+    name = args.name or ("ngram_donemsiz" if args.era_neutral else "ngram")
+    model_dir = (args.out_dir / "models" / name) if args.out_dir else MODELS / name
+    out = (args.out_dir / "outputs" / name) if args.out_dir else OUTPUTS / name
     out.mkdir(parents=True, exist_ok=True)
 
     recs = {}
@@ -93,7 +98,7 @@ def main(argv=None) -> None:
     leak = leakage_report(recs)
     if any(leak.values()):
         raise SystemExit(f"Bolmeler arasi sizinti: { {k: v for k, v in leak.items() if v} }")
-    codes = {s: [prep_code(r["code"]) for r in recs[s]] for s in SPLITS}
+    codes = {s: [prep_code(r["code"], args.era_neutral) for r in recs[s]] for s in SPLITS}
     y = {s: np.array([r["label"] for r in recs[s]], dtype=int) for s in SPLITS}
     for s in SPLITS:
         print(f"{s}: {len(y[s])} ornek, AI orani {y[s].mean():.3f}")
@@ -110,6 +115,8 @@ def main(argv=None) -> None:
     det, log, res = select_and_fit(codes["train"], y["train"], codes["val"], y["val"],
                                    grid, view_cfg)
     fit_sec = time.time() - t_fit
+    # Tahminde ayni on islemenin uygulanmasi icin modelle birlikte kaydedilir.
+    det.meta["era_neutral"] = bool(args.era_neutral)
     pd.DataFrame(log).to_csv(out / "grid_search.csv", index=False)
     print(f"Secilen: gorunum {'+'.join(det.views)}, {det.meta['clf']} C={det.meta['C']}, "
           f"esik {det.threshold:.4f} ({len(grid)} aday, {fit_sec:.1f} sn)")

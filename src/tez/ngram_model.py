@@ -54,7 +54,9 @@ VIEW_CONFIG: dict[str, dict] = {
 # Varsayilan izgara: gorunum kombinasyonlari x siniflandirici x C.
 VIEW_COMBOS: list[tuple[str, ...]] = [
     c for k in range(1, len(VIEWS) + 1) for c in itertools.combinations(VIEWS, k)]
-CLF_GRID: dict[str, list[float]] = {"lr": [0.3, 1.0, 3.0, 10.0], "svm": [0.03, 0.1, 0.3, 1.0]}
+# Provada LR en iyisi izgaranin ust sinirindaydi (C=10); izgara iki yone genisletildi.
+CLF_GRID: dict[str, list[float]] = {"lr": [0.3, 1.0, 3.0, 10.0, 30.0, 100.0],
+                                    "svm": [0.03, 0.1, 0.3, 1.0, 3.0]}
 MAX_STR = 40  # tok gorunumunde string jetonlari bu uzunlukta kesilir
 
 _KW = set(keyword.kwlist) | set(getattr(keyword, "softkwlist", []))
@@ -66,10 +68,64 @@ _FALLBACK = re.compile(r"\w+|[^\w\s]")
 # On isleme ve jetonlama (modul duzeyi: joblib ile picklelanabilir olmali)
 # ---------------------------------------------------------------------------
 
-def prep_code(code: str) -> str:
+def prep_code(code: str, era_neutral: bool = False) -> str:
     """Egitimdeki normalizasyon; parse edilemezse kod oldugu gibi kullanilir."""
     norm = normalize_code(code)
-    return norm if norm is not None else code
+    code = norm if norm is not None else code
+    return era_neutralize(code) if era_neutral else code
+
+
+_FSTART = getattr(tokenize, "FSTRING_START", -1)
+_FEND = getattr(tokenize, "FSTRING_END", -3)
+
+
+def era_neutralize(code: str) -> str:
+    """Yazim donemine bagli metin bicimlendirme izlerini notrlestirir.
+
+    Insan kodu 2019 oncesi oldugu icin f-string ve '%' bicimlendirmesi uslup yerine
+    "hangi yil" bilgisi tasiyabilir. Her string sabiti (f-string dahil, onek ve
+    tirnak bicimiyle) 'S' olur; bir stringin hemen ardindaki '%' operatoru '+'
+    olur. Geri kalan metin (bosluk, girinti, isimler) aynen korunur.
+    """
+    lines = code.splitlines(keepends=True)
+    starts = [0]
+    for ln in lines:
+        starts.append(starts[-1] + len(ln))
+
+    def off(pos: tuple[int, int]) -> int:
+        return starts[pos[0] - 1] + pos[1]
+
+    spans: list[tuple[int, int, str]] = []
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(code).readline))
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return code
+    depth, fstart, prev_str = 0, None, False
+    for t in toks:
+        if t.type == _FSTART:
+            if depth == 0:
+                fstart = t.start
+            depth += 1
+            continue
+        if t.type == _FEND:
+            depth -= 1
+            if depth == 0:
+                spans.append((off(fstart), off(t.end), "'S'"))
+                prev_str = True
+            continue
+        if depth:
+            continue
+        if t.type == tokenize.STRING:
+            spans.append((off(t.start), off(t.end), "'S'"))
+            prev_str = True
+            continue
+        if t.type == tokenize.OP and t.string == "%" and prev_str:
+            spans.append((off(t.start), off(t.end), "+"))
+        if t.type not in (tokenize.NL, tokenize.COMMENT):
+            prev_str = False
+    for a, b, rep in reversed(spans):
+        code = code[:a] + rep + code[b:]
+    return code
 
 
 def _lexemes(code: str) -> list[tuple[int, str]]:
@@ -259,7 +315,8 @@ class NgramDetector:
     name: str = "ngram"
 
     def transform(self, codes: Sequence[str], prepped: bool = False) -> sp.csr_matrix:
-        codes = list(codes) if prepped else [prep_code(c) for c in codes]
+        era = bool(self.meta.get("era_neutral", False))
+        codes = list(codes) if prepped else [prep_code(c, era) for c in codes]
         return stack({v: self.vectorizers[v].transform(codes) for v in self.views}, self.views)
 
     def predict_proba(self, codes: Sequence[str], prepped: bool = False) -> np.ndarray:

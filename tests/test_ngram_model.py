@@ -142,3 +142,30 @@ def test_svm_kalibre():
     p = det.predict_proba(va, prepped=True)
     assert np.all((p >= 0) & (p <= 1))
     assert det.explain_one(va[0], top=3)
+
+
+def test_donemsiz_fstring_ve_yuzde_notrlesir():
+    from tez.ngram_model import era_neutralize
+
+    kod = 'def f(a, b):\n    x = f"{a} ve {b!r}"\n    y = "%s-%d" % (a, b)\n    z = a % b\n    return x + y + \'t\'\n'
+    out = era_neutralize(kod)
+    assert out == "def f(a, b):\n    x = 'S'\n    y = 'S' + (a, b)\n    z = a % b\n    return x + y + 'S'\n"
+
+
+def test_donemsiz_ic_ice_fstring_ve_bosluk_korunur():
+    from tez.ngram_model import era_neutralize
+
+    kod = 'def g(d):\n    return  f"{d[f\'{1}\']}"   if d else None\n'
+    assert era_neutralize(kod) == "def g(d):\n    return  'S'   if d else None\n"
+
+
+def test_donemsiz_model_tahminde_ayni_on_islemeyi_kullanir():
+    from tez.ngram_model import NgramDetector, prep_code
+
+    kodlar = ['def f(a):\n    return f"{a}"\n', "def f(a):\n    return '%s' % a\n"]
+    # Donem isaretleri (f oneki, '%' bicimi) iz birakmaz; '%' biciminde arguman kalir.
+    assert prep_code(kodlar[0], True) == "def f(a):\n    return 'S'\n"
+    assert prep_code(kodlar[1], True) == "def f(a):\n    return 'S' + a\n"
+    assert prep_code(kodlar[0]) == kodlar[0]
+    det = NgramDetector({}, None, [], 0.5, {"era_neutral": True})
+    assert det.meta["era_neutral"] is True

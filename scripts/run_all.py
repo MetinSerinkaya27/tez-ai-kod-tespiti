@@ -34,6 +34,10 @@ STEPS = [
     ("06_eval_xgb", ["scripts/06_evaluate.py", "--model", "xgb"], False),
     ("04b_ngram", ["scripts/04b_train_ngram.py"], False),
     ("06_eval_ngram", ["scripts/06_evaluate.py", "--model", "ngram"], False),
+    ("04b_ngram_donemsiz", ["scripts/04b_train_ngram.py", "--era-neutral"], False),
+    ("06_eval_ngram_donemsiz", ["scripts/06_evaluate.py", "--model", "ngram",
+                                "--model-dir", "models/ngram_donemsiz", "--name", "ngram_donemsiz"],
+     False),
     ("07_gercek_dunya_ai", ["scripts/07_real_world.py", "ai"], True),
     ("ollama_bosalt", None, True),
     # Dil modeli (codegen-350M) perplexity ozellikleri; GPU Ollama'dan bosaldiktan sonra.
@@ -66,6 +70,9 @@ STEPS = [
     ("08_gercek_dunya_unixcoder", ["scripts/08_eval_real_world.py", "--model", "codebert",
                                    "--model-dir", "models/unixcoder", "--name", "unixcoder"], False),
     ("08_gercek_dunya_ngram", ["scripts/08_eval_real_world.py", "--model", "ngram"], False),
+    ("08_gercek_dunya_ngram_donemsiz", ["scripts/08_eval_real_world.py", "--model", "ngram",
+                                        "--model-dir", "models/ngram_donemsiz",
+                                        "--name", "ngram_donemsiz"], False),
     # Ensemble'da XGBoost uyesi perplexity'li model.
     ("09_ensemble", ["scripts/09_ensemble.py", "--device", "cuda",
                      "--members", "xgb", "codebert", "ngram",
