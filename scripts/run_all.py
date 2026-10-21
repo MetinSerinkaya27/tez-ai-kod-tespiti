@@ -41,6 +41,9 @@ STEPS = [
     ("06_eval_codebert", ["scripts/06_evaluate.py", "--model", "codebert",
                           "--skip-cv", "--skip-cross-source"], False),
     ("08_gercek_dunya_xgb", ["scripts/08_eval_real_world.py", "--model", "xgb"], False),
+    ("08_gercek_dunya_xgb_donemsiz", ["scripts/08_eval_real_world.py", "--model", "xgb",
+                                      "--model-dir", "models/xgb/ablation/donemsiz",
+                                      "--name", "xgb_donemsiz"], False),
     ("08_gercek_dunya_codebert", ["scripts/08_eval_real_world.py", "--model", "codebert"], False),
 ]
 

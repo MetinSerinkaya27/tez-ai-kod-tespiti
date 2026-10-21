@@ -54,6 +54,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="human.jsonl + ai.jsonl dizini (varsayilan data/real_world)")
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="verilirse model <out>/models/<model>, cikti <out>/outputs/real_world/<model>")
+    ap.add_argument("--name", default=None,
+                    help="cikti alt dizini (varsayilan --model); orn. ablasyon modelleri icin")
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--memo-threshold", type=float, default=MEMO_THRESHOLD)
     ap.add_argument("--length-bin", type=float, default=1, help="uzunluk kovasi (satir)")
@@ -67,7 +69,7 @@ def main(argv=None) -> None:
     root_models = (args.out_dir / "models") if args.out_dir else MODELS
     root_out = (args.out_dir / "outputs") if args.out_dir else OUTPUTS
     model_dir = args.model_dir or root_models / args.model
-    out = root_out / "real_world" / args.model
+    out = root_out / "real_world" / (args.name or args.model)
 
     h_path, a_path = args.data_dir / "human.jsonl", args.data_dir / "ai.jsonl"
     human = read_jsonl(h_path)

@@ -38,6 +38,14 @@ RAW_COUNTS = [
 ]
 LENGTH_CORR_THRESHOLD = 0.8
 
+# Yazim donemine bagli kolonlar: insan kodu 2019 oncesi oldugu icin bunlar uslup
+# yerine "hangi yil" bilgisini tasiyabilir (f-string AI'nin %94'unde, insanin %1'inde).
+ERA_COLUMNS = [
+    "fmt_fstring_rate", "fmt_format_call_rate", "fmt_percent_format_rate",
+    "param_annotation_frac", "has_return_annotation", "node_annassign_frac",
+    "node_await_frac", "idiom_raise_from_rate",
+]
+
 # Ozellik gruplari (features.py'deki dort grup; AST yapisi = node_* + _STRUCT).
 GROUPS: dict[str, list[str]] = {
     "ast_yapi": [c for c in FEATURE_NAMES if c.startswith("node_")] + list(_STRUCT),
@@ -112,10 +120,13 @@ def length_columns(X_train: pd.DataFrame, threshold: float = LENGTH_CORR_THRESHO
 def ablation_sets(length_cols: list[str]) -> dict[str, list[str]]:
     """Ablasyon adi -> kolon listesi (FEATURE_NAMES sirasinda)."""
     drop = set(length_cols)
+    era = set(ERA_COLUMNS)
     fmt = set(GROUPS["bicim"])
     return {
         "tum": list(FEATURE_NAMES),
         "uzunluksuz": [c for c in FEATURE_NAMES if c not in drop],
+        "donemsiz": [c for c in FEATURE_NAMES if c not in era],
+        "uzunluksuz_donemsiz": [c for c in FEATURE_NAMES if c not in drop | era],
         "yalniz_bicim": [c for c in FEATURE_NAMES if c in fmt],
         "yalniz_ast": [c for c in FEATURE_NAMES if c not in fmt],
     }

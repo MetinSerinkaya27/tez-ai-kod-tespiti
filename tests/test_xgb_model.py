@@ -7,6 +7,7 @@ import pytest
 from tez.features import FEATURE_NAMES, features_frame
 from tez.metrics import best_threshold
 from tez.xgb_model import (
+    ERA_COLUMNS,
     GROUPS,
     LENGTH_BASE,
     RAW_COUNTS,
@@ -102,6 +103,10 @@ def test_ablasyon_kolonlari():
     assert sets["yalniz_bicim"] == [c for c in FEATURE_NAMES if c.startswith("fmt_")]
     assert not any(c.startswith("fmt_") for c in sets["yalniz_ast"])
     assert sorted(sets["yalniz_bicim"] + sets["yalniz_ast"]) == sorted(FEATURE_NAMES)
+    assert set(ERA_COLUMNS) <= set(FEATURE_NAMES)
+    assert not set(sets["donemsiz"]) & set(ERA_COLUMNS)
+    assert set(sets["donemsiz"]) | set(ERA_COLUMNS) == set(FEATURE_NAMES)
+    assert not set(sets["uzunluksuz_donemsiz"]) & (set(ERA_COLUMNS) | set(cols))
     # Gruplar FEATURE_NAMES'i ortusmeden boler.
     grup_kolonlari = [c for g in GROUPS.values() for c in g]
     assert sorted(grup_kolonlari) == sorted(FEATURE_NAMES)
