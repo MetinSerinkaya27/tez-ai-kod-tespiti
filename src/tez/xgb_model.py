@@ -25,6 +25,7 @@ from tez import features as _features_mod
 from tez.features import _IDENT, _STRUCT, FEATURE_NAMES, features_frame
 from tez.metrics import best_threshold, compute_metrics
 from tez.normalize import normalize_code
+from tez.perplexity import is_ppl_feature
 from tez.paths import MODELS, SEED
 
 # Uzunlugun dogrudan olcusu olan kolonlar (uzunluksuz ablasyonda hep cikarilir).
@@ -117,12 +118,16 @@ def length_columns(X_train: pd.DataFrame, threshold: float = LENGTH_CORR_THRESHO
     return LENGTH_BASE + extra, max_r
 
 
-def ablation_sets(length_cols: list[str]) -> dict[str, list[str]]:
-    """Ablasyon adi -> kolon listesi (FEATURE_NAMES sirasinda)."""
+def ablation_sets(length_cols: list[str], ppl_cols: list[str] | None = None) -> dict[str, list[str]]:
+    """Ablasyon adi -> kolon listesi (FEATURE_NAMES sirasinda).
+
+    ppl_cols verilirse (04 --with-ppl) mevcut ablasyonlar aynen korunur ve sona
+    "tum+ppl", "yalniz_ppl", "donemsiz+ppl" eklenir; verilmezse cikti eskisiyle ayni.
+    """
     drop = set(length_cols)
     era = set(ERA_COLUMNS)
     fmt = set(GROUPS["bicim"])
-    return {
+    sets = {
         "tum": list(FEATURE_NAMES),
         "uzunluksuz": [c for c in FEATURE_NAMES if c not in drop],
         "donemsiz": [c for c in FEATURE_NAMES if c not in era],
@@ -130,6 +135,11 @@ def ablation_sets(length_cols: list[str]) -> dict[str, list[str]]:
         "yalniz_bicim": [c for c in FEATURE_NAMES if c in fmt],
         "yalniz_ast": [c for c in FEATURE_NAMES if c not in fmt],
     }
+    if ppl_cols:
+        sets["tum+ppl"] = sets["tum"] + list(ppl_cols)
+        sets["yalniz_ppl"] = list(ppl_cols)
+        sets["donemsiz+ppl"] = sets["donemsiz"] + list(ppl_cols)
+    return sets
 
 
 # --- Egitim ---
@@ -195,12 +205,35 @@ class XGBDetector:
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         return (self.predict_proba(X) >= self.threshold).astype(int)
 
+    @property
+    def uses_ppl(self) -> bool:
+        return any(is_ppl_feature(c) for c in self.features)
+
+    def frame(self, codes, batch_size: int = 8) -> pd.DataFrame:
+        """Normalize edilmis kod listesi -> modelin kolonlari (girdi sirasinda).
+
+        Model perplexity (ppl_*) ozelligi kullaniyorsa dil modeli ilk cagrida
+        yuklenir (tez.perplexity.load_lm onbellekli) ve ayni kodlar uzerinde
+        hesaplanir; cihaz meta["ppl_device"] (varsayilan cpu). Perplexity'siz
+        modelde yalnizca features_frame kullanilir (LM yuklenmez).
+        """
+        codes = list(codes)
+        X = features_frame(codes)
+        if self.uses_ppl:
+            from tez import perplexity as ppl
+            P = ppl.token_stats(
+                codes, model_name=self.meta.get("ppl_model", ppl.DEFAULT_MODEL),
+                device=self.meta.get("ppl_device", "cpu"), batch_size=batch_size,
+                max_length=int(self.meta.get("ppl_max_length", ppl.DEFAULT_MAX_LENGTH)))
+            X = pd.concat([X, P], axis=1)
+        return X[self.features]
+
     def code_frame(self, code: str) -> pd.DataFrame:
         """Ham kodu egitimdeki gibi normalize edip tek satirlik ozellik tablosu yapar."""
         norm = normalize_code(code)
         if norm is None:
             raise ValueError("Kod parse edilemedi")
-        return features_frame([norm])[self.features]
+        return self.frame([norm])
 
     def shap_values(self, X: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
         """TreeSHAP katkilari (log-odds) ve taban degerleri: (n, f), (n,)."""

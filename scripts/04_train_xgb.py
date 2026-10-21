@@ -4,6 +4,11 @@ Akis: ozellikler (parquet onbellekli) -> her ablasyon icin val'de izgara +
 erken durdurma ve esik secimi -> satir sayisi taban cizgisi -> test kumesi en
 sonda bir kez, sabit esiklerle -> ana model (tum ozellikler) icin SHAP.
 Ciktilar: model ve meta -> MODELS/xgb, tablolar ve grafikler -> OUTPUTS/xgb.
+
+--with-ppl: 03c_perplexity.py'nin parquet'leri ozellik matrisine eklenir; mevcut
+ablasyonlar aynen kalir, "tum+ppl", "yalniz_ppl", "donemsiz+ppl" eklenir. Ana model
+"tum+ppl" olur ve ana xgb'nin ustune yazilmaz: MODELS/xgb_ppl, OUTPUTS/xgb_ppl.
+Bayrak yokken davranis eskisiyle birebir aynidir.
 """
 from __future__ import annotations
 
@@ -21,6 +26,7 @@ import shap
 from tez.dataset import load_jsonl
 from tez.metrics import best_threshold, compute_metrics, save_metrics
 from tez.paths import MODELS, OUTPUTS, SEED, TRAIN_JSONL
+from tez.perplexity import DEFAULT_MAX_LENGTH, DEFAULT_MODEL, PPL_FEATURES, cached_ppl
 from tez.xgb_model import (
     BASELINE_FEATURES,
     LENGTH_CORR_THRESHOLD,
@@ -38,6 +44,7 @@ matplotlib.use("Agg")
 
 SPLITS = ("train", "val", "test")
 MAIN = "tum"
+MAIN_PPL = "tum+ppl"
 BASELINE = "taban_satir_sayisi"
 
 
@@ -50,6 +57,10 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="verilirse model -> <out>/models/xgb, cikti -> <out>/outputs/xgb")
     ap.add_argument("--n-jobs", type=int, default=None, help="XGBoost is parcacigi sayisi")
+    ap.add_argument("--with-ppl", action="store_true",
+                    help="perplexity ozelliklerini ekle (once 03c_perplexity.py)")
+    ap.add_argument("--ppl-model", default=DEFAULT_MODEL)
+    ap.add_argument("--ppl-max-length", type=int, default=DEFAULT_MAX_LENGTH)
     return ap.parse_args()
 
 
@@ -74,8 +85,10 @@ def shap_report(det: XGBDetector, X_test: pd.DataFrame, out: Path) -> pd.DataFra
 def main() -> None:
     args = parse_args()
     t0 = time.time()
-    model_dir = (args.out_dir / "models" / "xgb") if args.out_dir else MODELS / "xgb"
-    out = (args.out_dir / "outputs" / "xgb") if args.out_dir else OUTPUTS / "xgb"
+    tag = "xgb_ppl" if args.with_ppl else "xgb"
+    main_name = MAIN_PPL if args.with_ppl else MAIN
+    model_dir = (args.out_dir / "models" / tag) if args.out_dir else MODELS / tag
+    out = (args.out_dir / "outputs" / tag) if args.out_dir else OUTPUTS / tag
     cache_dir = args.cache_dir or args.data_dir / "features"
     out.mkdir(parents=True, exist_ok=True)
 
@@ -86,12 +99,19 @@ def main() -> None:
             raise SystemExit(f"{path} bulunamadi; once scripts/03_build_dataset.py calistirilmali.")
         recs[s] = load_jsonl(path)
         X[s] = cached_features(recs[s], cache_dir, s)
+        if args.with_ppl:
+            try:
+                P = cached_ppl(recs[s], cache_dir, s, args.ppl_model, args.ppl_max_length,
+                               compute=False)
+            except FileNotFoundError as e:
+                raise SystemExit(f"--with-ppl: {e}")
+            X[s] = X[s].join(P, how="left")
         y[s] = np.array([r["label"] for r in recs[s]], dtype=int)
         print(f"{s}: {len(recs[s])} ornek, AI orani {y[s].mean():.3f}")
 
     # Uzunluk kolonlari yalnizca egitim kumesinden belirlenir.
     length_cols, max_r = length_columns(X["train"])
-    sets = ablation_sets(length_cols)
+    sets = ablation_sets(length_cols, PPL_FEATURES if args.with_ppl else None)
     with open(out / "length_columns.json", "w", encoding="utf-8") as f:
         json.dump({"threshold": LENGTH_CORR_THRESHOLD, "removed": length_cols,
                    "raw_count_max_abs_r": max_r}, f, indent=2)
@@ -103,7 +123,10 @@ def main() -> None:
     for name, cols in sets.items():
         model, params, log = select_and_fit(
             X["train"][cols], y["train"], X["val"][cols], y["val"], n_jobs=args.n_jobs)
-        det = XGBDetector(model, cols, 0.5, {"ablation": name, "params": params, "seed": SEED})
+        meta = {"ablation": name, "params": params, "seed": SEED}
+        if args.with_ppl:
+            meta.update(ppl_model=args.ppl_model, ppl_max_length=args.ppl_max_length)
+        det = XGBDetector(model, cols, 0.5, meta)
         p_val = det.predict_proba(X["val"])
         det.threshold = best_threshold(y["val"], p_val)
         fitted[name] = (det, p_val)
@@ -135,12 +158,12 @@ def main() -> None:
     save_metrics(out / "per_source_metrics.json", src_rows)
 
     # 3) Kaydet: ana model + ablasyon modelleri.
-    main_det = fitted[MAIN][0]
+    main_det = fitted[main_name][0]
     main_det.meta["test_metrics"] = next(
-        r for r in rows if r["model"] == MAIN and r["split"] == "test")
+        r for r in rows if r["model"] == main_name and r["split"] == "test")
     main_det.save(model_dir)
     for name, (det, _) in fitted.items():
-        if name != MAIN:
+        if name != main_name:
             det.save(model_dir / "ablation" / name)
 
     # 4) SHAP (ana model, test kumesi).

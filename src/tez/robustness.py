@@ -62,7 +62,8 @@ class XGBCodeDetector:
         return float(self.det.threshold)
 
     def frame(self, codes: Sequence[str]) -> pd.DataFrame:
-        return features_frame(codes)
+        # Perplexity (ppl_*) kullanan modelde dil modeli ozellikleri de hesaplanir.
+        return self.det.frame(codes)
 
     def predict_proba(self, codes: Sequence[str]) -> np.ndarray:
         if len(codes) == 0:

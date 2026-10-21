@@ -72,7 +72,12 @@ def parse_args() -> argparse.Namespace:
 def load_detector(name: str, model_dir: Path, device: str):
     if name == "xgb":
         from tez.xgb_model import XGBDetector
-        return XGBCodeDetector(XGBDetector.load(model_dir))
+        det = XGBDetector.load(model_dir)
+        if det.uses_ppl and device != "cpu":
+            import torch
+            if torch.cuda.is_available():
+                det.meta["ppl_device"] = "cuda"
+        return XGBCodeDetector(det)
     if name == "ensemble":
         from tez.ensemble import EnsembleDetector
         return EnsembleDetector.load(model_dir, device=device)

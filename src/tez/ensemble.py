@@ -194,7 +194,12 @@ def load_member(kind: str, model_dir: str | Path, device: str = "cpu"):
     if kind == "xgb":
         from tez.robustness import XGBCodeDetector
         from tez.xgb_model import XGBDetector
-        return XGBCodeDetector(XGBDetector.load(model_dir))
+        det = XGBDetector.load(model_dir)
+        if det.uses_ppl and device != "cpu":
+            import torch
+            if torch.cuda.is_available():
+                det.meta["ppl_device"] = "cuda"
+        return XGBCodeDetector(det)
     if kind == "codebert":
         from tez.codebert import CodeBertDetector  # torch/transformers burada yuklenir
         return CodeBertDetector.from_dir(model_dir, device=device)

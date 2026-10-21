@@ -156,3 +156,30 @@ def test_ozellik_onbellegi(tmp_path):
     dosyalar = list(tmp_path.glob("train_*.parquet"))
     assert len(dosyalar) == 1 and dosyalar[0] != ilk
     assert b.iloc[0]["num_statements"] == 1
+
+
+def test_ablasyon_ppl_istege_bagli():
+    from tez.perplexity import PPL_FEATURES
+
+    cols = list(LENGTH_BASE)
+    eski = ablation_sets(cols)
+    yeni = ablation_sets(cols, PPL_FEATURES)
+    # ppl verilmezse ek satir yok; verilirse eski ablasyonlar aynen ve ayni sirada.
+    assert not any("ppl" in k for k in eski)
+    assert list(yeni)[: len(eski)] == list(eski)
+    assert all(yeni[k] == eski[k] for k in eski)
+    assert yeni["tum+ppl"] == list(FEATURE_NAMES) + PPL_FEATURES
+    assert yeni["yalniz_ppl"] == PPL_FEATURES
+    assert yeni["donemsiz+ppl"] == eski["donemsiz"] + PPL_FEATURES
+    assert not set(yeni["donemsiz+ppl"]) & set(ERA_COLUMNS)
+
+
+def test_ppl_olmayan_modelde_lm_yuklenmez(egitilmis, monkeypatch):
+    from tez import perplexity
+
+    def yasak(*a, **k):
+        raise AssertionError("ppl ozelligi olmayan modelde LM yuklenmemeli")
+
+    monkeypatch.setattr(perplexity, "load_lm", yasak)
+    det = egitilmis[0]
+    assert len(det.explain_one("def g(a):\n    return a\n")) == len(det.features)
