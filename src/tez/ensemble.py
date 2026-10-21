@@ -1,9 +1,9 @@
-"""XGBoost + CodeBERT topluluk (ensemble) dedektoru.
+"""N uyeli topluluk (ensemble) dedektoru (xgb, codebert, ngram, ...).
 
-Alt dedektorler (orn. xgb ve codebert) ayri ayri egitilmis ve kaydedilmistir;
+Alt dedektorler (orn. xgb, codebert, ngram) ayri ayri egitilmis ve kaydedilmistir;
 burada yalnizca BIRLESTIRICI ogrenilir. Iki birlestirici vardir:
   - "mean": olasiliklarin basit ortalamasi (parametresiz),
-  - "logistic": logit(p_i) ozellikleri uzerinde L2'li LogisticRegression
+  - "logistic": N uyenin logit(p_i) ozellikleri uzerinde L2'li LogisticRegression
     (C sabit; olasiliklar [EPS, 1-EPS] araligina kirpilir).
 Birlestirici agirliklari VE esik (best_threshold, F1) YALNIZCA dogrulama (val)
 kumesinde secilir; test ve gercek dunya setinde sabit kalir.
@@ -15,7 +15,8 @@ test metrikleri temiz kalir. Agirliklarin kararliligi icin val uzerinde depo
 bazli K katli cross-fitting yapilir (cross_fit).
 
 Kayit (models/ensemble/ensemble.json): yontem, esikler, LR agirliklari ve alt
-model yollari (models kokune gore goreli, mumkunse).
+model yollari (models kokune gore goreli, mumkunse). Bicim uye sayisindan
+bagimsizdir; eski iki uyeli kayitlar da aynen yuklenir.
 """
 from __future__ import annotations
 
@@ -34,6 +35,7 @@ from tez.paths import SEED
 EPS = 1e-6
 DEFAULT_C = 1.0
 METHODS = ("mean", "logistic")
+MEMBER_KINDS = ("xgb", "codebert", "ngram")
 CONFIG_NAME = "ensemble.json"
 OPTIMISM_NOTE = (
     "Birlestirici agirliklari ve esik val'de ogrenildi; alt modellerin esik/erken "
@@ -171,6 +173,17 @@ def agreement_stats(p_a, p_b, thr_a: float, thr_b: float) -> dict:
             "n": int(len(p_a))}
 
 
+def pairwise_agreement(P, names: Sequence[str], thresholds: Sequence[float]) -> dict[str, dict]:
+    """Tum uye ciftleri icin agreement_stats; anahtar "a vs b"."""
+    P = as_matrix(P)
+    out = {}
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            out[f"{names[i]} vs {names[j]}"] = agreement_stats(P[:, i], P[:, j],
+                                                               thresholds[i], thresholds[j])
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Alt dedektor yukleme
 # ---------------------------------------------------------------------------
@@ -185,6 +198,9 @@ def load_member(kind: str, model_dir: str | Path, device: str = "cpu"):
     if kind == "codebert":
         from tez.codebert import CodeBertDetector  # torch/transformers burada yuklenir
         return CodeBertDetector.from_dir(model_dir, device=device)
+    if kind == "ngram":
+        from tez.ngram_model import NgramDetector
+        return NgramDetector.load(model_dir)
     raise ValueError(f"Bilinmeyen alt model turu: {kind}")
 
 
@@ -194,6 +210,8 @@ def member_exists(kind: str, model_dir: str | Path) -> bool:
         return (d / "meta.json").exists() and (d / "model.json").exists()
     if kind == "codebert":
         return (d / "config.json").exists()
+    if kind == "ngram":
+        return (d / "ngram.joblib").exists()
     return False
 
 

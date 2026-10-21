@@ -1,22 +1,25 @@
-"""XGBoost + CodeBERT topluluk modeli (tez.ensemble).
+"""N uyeli topluluk modeli (tez.ensemble): xgb, codebert, ngram.
 
 Adimlar:
-  1. models/xgb ve models/codebert yuklenir (CodeBERT icin --device).
+  1. Uyeler yuklenir (--members; varsayilan: models/ altinda mevcut olan
+     xgb/codebert/ngram'in hepsi; eksik uye uyariyla atlanir, en az 2 uye
+     gerekir). CodeBERT icin --device.
   2. val ve test tahminleri hesaplanir; alt model tahminleri
      outputs/ensemble/preds_<bolme>.parquet'te id ile onbelleklenir (model
      dizini degisirse ilgili sutun yeniden hesaplanir).
   3. Birlestiriciler (ortalama, logit uzerinde L2 LR) ve esikleri YALNIZCA val'de
      ogrenilir; models/ensemble/ensemble.json'a kaydedilir.
   4. Test (sabit esik): tek modeller vs ortalama vs lojistik, depo bazli bootstrap
-     GA, iki model arasi korelasyon/uyusmazlik; val'de 5 katli depo bazli
-     cross-fitting ile agirlik kararliligi.
+     GA, uye ciftleri arasi korelasyon/uyusmazlik; val'de 5 katli depo bazli
+     cross-fitting ile N agirligin kararliligi.
 
 Iyimserlik: alt modellerin esik/erken durdurmasi ve birlestirici val'de secildi;
 val metrikleri iyimserdir, test temizdir.
 
 Kullanim:
     uv run python scripts/09_ensemble.py --device auto
-    # prova: ikinci uye olarak baska bir XGB
+    uv run python scripts/09_ensemble.py --members xgb ngram
+    # prova (eski arayuz, iki uye): ikinci uye olarak baska bir XGB
     uv run python scripts/09_ensemble.py --second-kind xgb --second-name xgb_donemsiz \
         --second-dir models/xgb/ablation/donemsiz
 """
@@ -34,10 +37,11 @@ import pandas as pd
 from tez.dataset import load_jsonl
 from tez.ensemble import (
     DEFAULT_C,
+    MEMBER_KINDS,
     METHODS,
     OPTIMISM_NOTE,
     EnsembleDetector,
-    agreement_stats,
+    pairwise_agreement,
     cross_fit,
     load_member,
     member_exists,
@@ -57,9 +61,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="verilirse modeller <out>/models/*, cikti <out>/outputs/ensemble")
     ap.add_argument("--device", default="auto", help="codebert icin cihaz (auto|cpu|cuda)")
+    ap.add_argument("--members", nargs="+", choices=MEMBER_KINDS, default=None,
+                    help="uyeler (varsayilan: mevcut olan xgb/codebert/ngram'in hepsi)")
     ap.add_argument("--xgb-dir", type=Path, default=None, help="varsayilan <models>/xgb")
-    ap.add_argument("--second-kind", choices=("codebert", "xgb"), default="codebert")
-    ap.add_argument("--second-dir", type=Path, default=None, help="varsayilan <models>/codebert")
+    ap.add_argument("--codebert-dir", type=Path, default=None, help="varsayilan <models>/codebert")
+    ap.add_argument("--ngram-dir", type=Path, default=None, help="varsayilan <models>/ngram")
+    ap.add_argument("--second-kind", choices=MEMBER_KINDS, default=None,
+                    help="eski arayuz: xgb + bu tur (verilirse --members yok sayilir)")
+    ap.add_argument("--second-dir", type=Path, default=None, help="varsayilan <models>/<kind>")
     ap.add_argument("--second-name", default=None, help="varsayilan --second-kind")
     ap.add_argument("--method", choices=METHODS, default="logistic",
                     help="kaydedilen dedektorun birlestiricisi")
@@ -68,6 +77,37 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--n-folds", type=int, default=5)
     ap.add_argument("--no-cache", action="store_true", help="tahmin onbellegini yok say")
     return ap.parse_args(argv)
+
+
+def resolve_specs(args: argparse.Namespace, root_models: Path) -> dict[str, dict]:
+    """Uye adlari -> {"kind", "dir"}; eksik uyeler uyariyla atlanir (en az 2 gerekir)."""
+    dirs = {"xgb": args.xgb_dir, "codebert": args.codebert_dir, "ngram": args.ngram_dir}
+    if args.second_kind:  # eski iki uyeli arayuz: eksik uye hatadir
+        name = args.second_name or args.second_kind
+        if name == "xgb":
+            raise SystemExit("--second-name 'xgb' olamaz (ilk uye adi)")
+        specs = {"xgb": {"kind": "xgb", "dir": str(args.xgb_dir or root_models / "xgb")},
+                 name: {"kind": args.second_kind,
+                        "dir": str(args.second_dir or dirs[args.second_kind]
+                                   or root_models / args.second_kind)}}
+        missing = [f"{n} ({s['kind']}): {s['dir']}" for n, s in specs.items()
+                   if not member_exists(s["kind"], s["dir"])]
+        if missing:
+            raise SystemExit("Alt model bulunamadi:\n  " + "\n  ".join(missing))
+        return specs
+    wanted = list(dict.fromkeys(args.members or MEMBER_KINDS))
+    specs = {}
+    for k in wanted:
+        d = str(dirs[k] or root_models / k)
+        if member_exists(k, d):
+            specs[k] = {"kind": k, "dir": d}
+        else:
+            print(f"UYARI: uye '{k}' bulunamadi ({d}); atlandi.")
+    if len(specs) < 2:
+        raise SystemExit(f"En az 2 uye gerekli; mevcut: {list(specs) or 'yok'}. Once "
+                         "04_train_xgb.py / 04b_train_ngram.py / 05_train_codebert.py.")
+    print(f"Uyeler: {', '.join(specs)}")
+    return specs
 
 
 def dir_fingerprint(d: Path) -> str:
@@ -123,18 +163,7 @@ def main(argv=None) -> None:
     root_out = (args.out_dir / "outputs") if args.out_dir else OUTPUTS
     out = root_out / "ensemble"
     ens_dir = root_models / "ensemble"
-    second_name = args.second_name or args.second_kind
-    specs = {"xgb": {"kind": "xgb", "dir": str(args.xgb_dir or root_models / "xgb")},
-             second_name: {"kind": args.second_kind,
-                           "dir": str(args.second_dir or root_models / args.second_kind)}}
-    if len(specs) != 2:
-        raise SystemExit("--second-name 'xgb' olamaz (ilk uye adi)")
-    missing = [f"{n} ({s['kind']}): {s['dir']}" for n, s in specs.items()
-               if not member_exists(s["kind"], s["dir"])]
-    if missing:
-        raise SystemExit("Alt model bulunamadi:\n  " + "\n  ".join(missing)
-                         + "\nOnce scripts/04_train_xgb.py ve scripts/05_train_codebert.py "
-                           "calistirilmali.")
+    specs = resolve_specs(args, root_models)
 
     recs = {}
     for s in SPLITS:
@@ -178,7 +207,7 @@ def main(argv=None) -> None:
         d = bootstrap_delta_ci(y["test"], probs["test"][best_single], probs["test"][m], 0.5,
                                repos["test"], args.n_boot, SEED)
         deltas[m] = {k: d[k] for k in ("roc_auc", "pr_auc", "brier")}
-    agree = {s: agreement_stats(P[s][:, 0], P[s][:, 1], thr[names[0]], thr[names[1]])
+    agree = {s: pairwise_agreement(P[s], names, [thr[n] for n in names])
              for s in ("val", "test")}
 
     pd.DataFrame(rows).to_csv(out / "summary.csv", index=False)
@@ -256,12 +285,14 @@ def summary_markdown(s: dict) -> str:
     for r in s["metrics"]:
         if r["split"] == "val":
             L.append(f"| {r['model']} | {r['roc_auc']:.4f} | {r['f1']:.4f} | {r['accuracy']:.4f} |")
-    L += ["", f"## Uyeler arasi uyum (`{names[0]}` vs `{names[1]}`)",
+    L += ["", "## Uyeler arasi uyum (tum ciftler)",
           "Uyusmazlik: her uyenin kendi val esigiyle 0/1 tahminlerinin farkli oldugu oran.\n",
-          "| bolme | Pearson (p) | Pearson (logit) | Spearman | uyusmazlik |", "|---|---:|---:|---:|---:|"]
-    for sp, a in s["agreement"].items():
-        L.append(f"| {sp} | {a['pearson_p']:.4f} | {a['pearson_logit']:.4f} | "
-                 f"{a['spearman']:.4f} | {a['disagreement']:.4f} |")
+          "| cift | bolme | Pearson (p) | Pearson (logit) | Spearman | uyusmazlik |",
+          "|---|---|---:|---:|---:|---:|"]
+    for sp, pairs in s["agreement"].items():
+        for pair, a in pairs.items():
+            L.append(f"| {pair} | {sp} | {a['pearson_p']:.4f} | {a['pearson_logit']:.4f} | "
+                     f"{a['spearman']:.4f} | {a['disagreement']:.4f} |")
     return "\n".join(L) + "\n"
 
 

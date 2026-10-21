@@ -47,7 +47,7 @@ def read_jsonl(path: Path) -> list[dict]:
 def parse_args(argv=None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", choices=("xgb", "codebert", "ensemble"), default="xgb")
+    ap.add_argument("--model", choices=("xgb", "codebert", "ensemble", "ngram"), default="xgb")
     ap.add_argument("--model-dir", type=Path, default=None,
                     help="varsayilan: <out-dir>/models/<model> ya da models/<model>")
     ap.add_argument("--data-dir", type=Path, default=DATA / "real_world",

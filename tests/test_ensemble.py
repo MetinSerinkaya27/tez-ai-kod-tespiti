@@ -166,3 +166,94 @@ def test_bos_girdi_ve_hatali_yontem():
     assert ens.predict_proba([]).shape == (0,)
     with pytest.raises(ValueError):
         EnsembleDetector.fit({}, SPECS, np.zeros((4, 2)), [0, 1, 0, 1], method="medyan")
+
+
+def test_n_uyeli_topluluk_uc_agirlik(tmp_path):
+    rng = np.random.default_rng(3)
+    n = 300
+    y = rng.integers(0, 2, n)
+    P = np.column_stack([np.clip(0.5 + s * (y - 0.5) + rng.normal(0, 0.2, n), 0.01, 0.99)
+                         for s in (0.4, 0.2, 0.05)])
+    specs = {k: {"kind": k, "dir": str(tmp_path / "models" / k)}
+             for k in ("xgb", "codebert", "ngram")}
+    members = {k: SabitDedektor(P[:, i]) for i, k in enumerate(specs)}
+    ens = EnsembleDetector.fit(members, specs, P[:200], y[:200])
+    lg = ens.combiners["logistic"]
+    assert len(lg["coef"]) == 3 and lg["coef"][0] > lg["coef"][2]
+    codes = [str(i) for i in range(n)]
+    np.testing.assert_allclose(ens.member_proba(codes), P)
+    np.testing.assert_allclose(ens.combine(P, "mean"), P.mean(axis=1))
+    cf = cross_fit(P[:200], y[:200], [f"d{i % 10}" for i in range(200)], n_folds=5)
+    assert len(cf["coef_mean"]) == 3 and len(cf["coef_std"]) == 3
+    ens.save(tmp_path / "models" / "ensemble")
+    ens2 = EnsembleDetector.load(tmp_path / "models" / "ensemble",
+                                 loader=lambda k, d, dev: members[k])
+    assert ens2.names == ["xgb", "codebert", "ngram"]
+    np.testing.assert_allclose(ens2.predict_proba(codes), ens.predict_proba(codes))
+    with pytest.raises(ValueError):
+        EnsembleDetector.fit(members, specs, P[:200, :2], y[:200])
+
+
+def test_eski_iki_uyeli_json_yuklenir(tmp_path):
+    """Onceki surumun ensemble.json bicimi (iki uye) aynen yuklenir."""
+    d = tmp_path / "models" / "ensemble"
+    d.mkdir(parents=True)
+    eski = {"method": "logistic", "threshold": 0.29,
+            "members": [{"name": "xgb", "kind": "xgb", "dir": "xgb"},
+                        {"name": "xgb_donemsiz", "kind": "xgb", "dir": "xgb/ablation/donemsiz"}],
+            "combiners": {"mean": {"threshold": 0.30},
+                          "logistic": {"coef": [0.84, 0.16], "intercept": -0.14, "C": 1.0,
+                                       "threshold": 0.29}},
+            "eps": 1e-6, "meta": {"fit_split": "val"}}
+    (d / "ensemble.json").write_text(json.dumps(eski))
+    gorulen = []
+
+    def loader(kind, path, device):
+        gorulen.append(str(path))
+        return SahteDedektor(5.0)
+
+    ens = EnsembleDetector.load(d, loader=loader)
+    assert ens.names == ["xgb", "xgb_donemsiz"] and ens.threshold == 0.29
+    assert gorulen[1] == str(tmp_path / "models" / "xgb" / "ablation" / "donemsiz")
+    assert ens.predict_proba(["x" * 30]).shape == (1,)
+
+
+def test_ikili_uyum_tum_ciftler():
+    from tez.ensemble import pairwise_agreement
+    P = np.array([[0.1, 0.2, 0.9], [0.9, 0.8, 0.1], [0.7, 0.6, 0.3], [0.2, 0.3, 0.8]])
+    a = pairwise_agreement(P, ["xgb", "codebert", "ngram"], [0.5, 0.5, 0.5])
+    assert list(a) == ["xgb vs codebert", "xgb vs ngram", "codebert vs ngram"]
+    assert a["xgb vs codebert"]["disagreement"] == 0.0
+    assert a["xgb vs ngram"]["disagreement"] == 1.0
+
+
+def test_ngram_uye_turu_taninir(tmp_path):
+    from tez.ensemble import MEMBER_KINDS, member_exists
+    assert "ngram" in MEMBER_KINDS
+    assert not member_exists("ngram", tmp_path)
+    (tmp_path / "ngram.joblib").write_bytes(b"")
+    assert member_exists("ngram", tmp_path)
+
+
+def test_09_eksik_uye_atlanir_en_az_iki(tmp_path, capsys):
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "ens09", Path(__file__).resolve().parents[1] / "scripts" / "09_ensemble.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    root = tmp_path / "models"
+    (root / "xgb").mkdir(parents=True)
+    (root / "xgb" / "meta.json").write_text("{}")
+    (root / "xgb" / "model.json").write_text("{}")
+    with pytest.raises(SystemExit, match="En az 2"):
+        mod.resolve_specs(mod.parse_args([]), root)
+    (root / "ngram").mkdir()
+    (root / "ngram" / "ngram.joblib").write_bytes(b"")
+    specs = mod.resolve_specs(mod.parse_args([]), root)
+    assert list(specs) == ["xgb", "ngram"]
+    assert "codebert" in capsys.readouterr().out
+    specs = mod.resolve_specs(mod.parse_args(["--members", "ngram", "xgb"]), root)
+    assert list(specs) == ["ngram", "xgb"]
+    eski = mod.resolve_specs(mod.parse_args(["--second-kind", "ngram"]), root)
+    assert list(eski) == ["xgb", "ngram"]

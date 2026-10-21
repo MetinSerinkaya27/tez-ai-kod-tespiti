@@ -47,7 +47,7 @@ SMALL_GRID = {"max_depth": [3, 5], "learning_rate": [0.1], "min_child_weight": [
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model", choices=("xgb", "codebert", "ensemble"), default="xgb")
+    ap.add_argument("--model", choices=("xgb", "codebert", "ensemble", "ngram"), default="xgb")
     ap.add_argument("--model-dir", type=Path, default=None,
                     help="varsayilan: <out-dir>/models/<model> ya da models/<model>")
     ap.add_argument("--data-dir", type=Path, default=TRAIN_JSONL.parent,
@@ -76,6 +76,9 @@ def load_detector(name: str, model_dir: Path, device: str):
     if name == "ensemble":
         from tez.ensemble import EnsembleDetector
         return EnsembleDetector.load(model_dir, device=device)
+    if name == "ngram":
+        from tez.ngram_model import NgramDetector
+        return NgramDetector.load(model_dir)
     from tez.codebert import CodeBertDetector
     return CodeBertDetector.from_dir(model_dir, device=device)
 
