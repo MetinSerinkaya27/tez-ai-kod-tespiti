@@ -45,6 +45,10 @@ STEPS = [
                                       "--model-dir", "models/xgb/ablation/donemsiz",
                                       "--name", "xgb_donemsiz"], False),
     ("08_gercek_dunya_codebert", ["scripts/08_eval_real_world.py", "--model", "codebert"], False),
+    ("09_ensemble", ["scripts/09_ensemble.py", "--device", "cuda"], False),
+    ("06_eval_ensemble", ["scripts/06_evaluate.py", "--model", "ensemble",
+                          "--skip-cv", "--skip-cross-source"], False),
+    ("08_gercek_dunya_ensemble", ["scripts/08_eval_real_world.py", "--model", "ensemble"], False),
 ]
 
 
