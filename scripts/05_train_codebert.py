@@ -58,6 +58,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--out-dir", type=Path, default=None,
                    help="Verilirse model <out>/models/codebert, ciktilar <out>/outputs/codebert altina")
     p.add_argument("--base-model", default=BASE_MODEL)
+    p.add_argument("--name", default="codebert",
+                   help="model/cikti dizini adi (orn. unixcoder ile 'unixcoder')")
     p.add_argument("--epochs", type=int, default=3)
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
@@ -126,8 +128,8 @@ def per_source_metrics(recs: list[dict], probs: np.ndarray, thr: float) -> dict:
 def main() -> None:
     args = parse_args()
     sys.stdout.reconfigure(errors="replace")
-    model_dir = (args.out_dir / "models" / "codebert") if args.out_dir else MODELS / "codebert"
-    out_dir = (args.out_dir / "outputs" / "codebert") if args.out_dir else OUTPUTS / "codebert"
+    model_dir = (args.out_dir / "models" / args.name) if args.out_dir else MODELS / args.name
+    out_dir = (args.out_dir / "outputs" / args.name) if args.out_dir else OUTPUTS / args.name
     out_dir.mkdir(parents=True, exist_ok=True)
 
     device = select_device(args.device)

@@ -54,6 +54,8 @@ def parse_args() -> argparse.Namespace:
                     help="train/val/test.jsonl dizini (varsayilan data/processed)")
     ap.add_argument("--out-dir", type=Path, default=None,
                     help="verilirse model <out>/models/<model>, cikti <out>/outputs/eval/<model>")
+    ap.add_argument("--name", default=None,
+                    help="cikti alt dizini (varsayilan --model); orn. unixcoder icin")
     ap.add_argument("--n-boot", type=int, default=1000)
     ap.add_argument("--n-folds", type=int, default=5)
     ap.add_argument("--top-errors", type=int, default=20)
@@ -88,7 +90,7 @@ def main() -> None:
     root_models = (args.out_dir / "models") if args.out_dir else MODELS
     root_out = (args.out_dir / "outputs") if args.out_dir else OUTPUTS
     model_dir = args.model_dir or root_models / args.model
-    out = root_out / "eval" / args.model
+    out = root_out / "eval" / (args.name or args.model)
     out.mkdir(parents=True, exist_ok=True)
     grid = SMALL_GRID if args.small_grid else None
 
