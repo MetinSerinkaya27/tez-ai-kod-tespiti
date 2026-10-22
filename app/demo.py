@@ -303,6 +303,10 @@ def analyze_code(code: str):
             code = func
     # Egitim verisi normalize edilmis koddan olusuyor; her iki model de ayni girdiyi gormeli.
     norm = normalize_code(code)
+    # Modeller yalnizca Ingilizce kodla egitildi; ASCII disi ad/metin dagilimin disinda.
+    if any(ord(ch) > 127 for ch in norm):
+        error_box += ("\n\n🌐 Kodda İngilizce dışı karakterler var. Modeller İngilizce kodla "
+                      "eğitildiği için bu sonuç daha az güvenilir olabilir.")
     xgb_dec, xgb_info, xgb_fig = run_xgb_analysis(norm)
     cb_dec, cb_info, cb_html = run_codebert_analysis(norm)
     ens_dec = run_ensemble_analysis(norm)
