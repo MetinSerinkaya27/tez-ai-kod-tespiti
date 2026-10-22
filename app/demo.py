@@ -18,7 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from tez.paths import MODELS, ROOT
-from tez.normalize import normalize_code
+from tez.normalize import extract_function, normalize_code
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +166,9 @@ def plot_shap_bar(shap_items: list[tuple[str, float, float]]) -> matplotlib.figu
 
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
+    # Cubuk ucundaki sayilar eksen etiketleriyle cakismasin diye iki yana pay birak.
+    lim = max(abs(s) for s in shaps) if shaps else 1.0
+    ax.set_xlim(-lim * 1.35, lim * 1.35)
     plt.tight_layout()
     return fig
 
@@ -285,6 +288,19 @@ def analyze_code(code: str):
 
     error_box = ("✅ Python fonksiyonu başarıyla doğrulandı. Modeller eğitimdeki gibi "
                  "docstring ve yorumları kaldırılmış kodu değerlendirir.")
+    # Modeller tek fonksiyonla egitildi: import, ust duzey kod veya birden fazla tanim
+    # varsa egitim verisindeki gibi yalnizca ilk fonksiyon alinir.
+    tree = ast.parse(code)
+    is_single_func = (len(tree.body) == 1
+                      and isinstance(tree.body[0], (ast.FunctionDef, ast.AsyncFunctionDef)))
+    if not is_single_func:
+        func = extract_function(code)
+        if func is not None and normalize_code(func) is not None:
+            name = next(n.name for n in ast.parse(func).body)
+            error_box += (f"\n\n⚠️ Kod birden fazla öğe içeriyor (import, sınıf veya üst düzey kod). "
+                          f"Modeller tek fonksiyonla eğitildiği için yalnızca `{name}` "
+                          f"fonksiyonu analiz edildi.")
+            code = func
     # Egitim verisi normalize edilmis koddan olusuyor; her iki model de ayni girdiyi gormeli.
     norm = normalize_code(code)
     xgb_dec, xgb_info, xgb_fig = run_xgb_analysis(norm)
