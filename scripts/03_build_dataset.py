@@ -29,6 +29,12 @@ def main() -> None:
             sys.exit(f"{path} bulunamadi; once scripts/{step} calistirilmali.")
 
     human, ai = load_jsonl(HUMAN_JSONL), load_jsonl(AI_JSONL)
+    # 02b ile uretilen uzun fonksiyon AI kodlari (birden fazla parca dosyasi olabilir).
+    for path in sorted(AI_JSONL.parent.glob("ai_long*.jsonl")):
+        if not path.stem.endswith("_failed"):
+            extra = load_jsonl(path)
+            print(f"  ek AI: {path.name} ({len(extra)} kayit)")
+            ai += extra
     records, dropped = pair_records(human, ai)
     print(f"{len(human)} insan + {len(ai)} AI kaydindan {len(records)} ornek tutuldu")
     for reason, n in sorted(dropped.items()):
