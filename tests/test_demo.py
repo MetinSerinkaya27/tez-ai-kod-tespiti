@@ -46,7 +46,7 @@ def test_format_decision():
 
 def test_analyze_code_model_olmadan_cokmez():
     # Modeller henuz egitilmediyse arayuz cokmemeli, uygun uyari vermeli
-    status, xgb_dec, xgb_info, xgb_fig, cb_dec, cb_info, cb_html = analyze_code(EXAMPLE_HUMAN)
+    status, xgb_dec, xgb_info, xgb_fig, cb_dec, cb_info, cb_html, ens_dec = analyze_code(EXAMPLE_HUMAN)
     assert "başarıyla doğrulandı" in status
     if not is_xgb_available():
         assert "Model henüz eğitilmedi" in xgb_dec

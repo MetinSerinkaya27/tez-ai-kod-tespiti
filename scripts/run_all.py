@@ -57,6 +57,8 @@ STEPS = [
                      "--max-length", "512", "--batch-size", "4", "--grad-accum", "8",
                      "--grad-checkpointing", "--epochs", "3", "--lime-n", "5",
                      "--onnx", "--quantize"], False),
+    # Olasiliklar val'de Platt olceklemesiyle kalibre edilir (AUC ve kararlar degismez).
+    ("05b_kalibre_codebert", ["scripts/05b_calibrate.py", "--model-dir", "models/codebert"], False),
     ("06_eval_codebert", ["scripts/06_evaluate.py", "--model", "codebert",
                           "--skip-cv", "--skip-cross-source"], False),
     # Daha yeni kod kodlayicisi; ayni ayarlarla egitilip val'de CodeBERT ile karsilastirilir.
@@ -65,6 +67,7 @@ STEPS = [
                       "--max-length", "512", "--batch-size", "4", "--grad-accum", "8",
                       "--grad-checkpointing", "--epochs", "3", "--lime-n", "5",
                       "--onnx", "--quantize"], False),
+    ("05b_kalibre_unixcoder", ["scripts/05b_calibrate.py", "--model-dir", "models/unixcoder"], False),
     ("06_eval_unixcoder", ["scripts/06_evaluate.py", "--model", "codebert",
                            "--model-dir", "models/unixcoder", "--name", "unixcoder",
                            "--skip-cv", "--skip-cross-source"], False),

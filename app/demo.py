@@ -77,10 +77,28 @@ def is_xgb_available() -> bool:
     return (xgb_dir / "meta.json").exists() and (xgb_dir / "model.json").exists()
 
 
+# Test ve gercek dunya setinde en iyi tek model UniXcoder; yoksa CodeBERT kullanilir.
+TRANSFORMER_DIRS = ("unixcoder", "codebert")
+# Genel karar: XGBoost+perplexity, UniXcoder ve n-gram'in val'de ogrenilmis birlesimi.
+ENSEMBLE_DIR = "ensemble_unix"
+
+
+def transformer_dir() -> Path | None:
+    for name in TRANSFORMER_DIRS:
+        d = MODELS / name
+        if (d / "config.json").exists() and ((d / "model.safetensors").exists()
+                                             or (d / "pytorch_model.bin").exists()):
+            return d
+    return None
+
+
 def is_codebert_available() -> bool:
-    """CodeBERT model dizininin ve agirliklarinin varligini denetler."""
-    cb_dir = MODELS / "codebert"
-    return (cb_dir / "config.json").exists() or (cb_dir / "model.safetensors").exists() or (cb_dir / "pytorch_model.bin").exists()
+    """UniXcoder/CodeBERT model dizininin ve agirliklarinin varligini denetler."""
+    return transformer_dir() is not None
+
+
+def is_ensemble_available() -> bool:
+    return (MODELS / ENSEMBLE_DIR / "ensemble.json").exists()
 
 
 @lru_cache(maxsize=1)
@@ -92,9 +110,28 @@ def get_xgb_detector():
 
 @lru_cache(maxsize=1)
 def get_codebert_detector():
-    """CodeBertDetector nesnesini CPU uzerinde yukler ve onbellege alir."""
+    """UniXcoder (yoksa CodeBERT) dedektorunu CPU uzerinde yukler ve onbellege alir."""
     from tez.codebert import CodeBertDetector
-    return CodeBertDetector.from_dir(MODELS / "codebert", device="cpu")
+    return CodeBertDetector.from_dir(transformer_dir(), device="cpu")
+
+
+@lru_cache(maxsize=1)
+def get_ensemble_detector():
+    """Topluluk modelini CPU uzerinde yukler (ilk cagrida dil modeli de yuklenir)."""
+    from tez.ensemble import EnsembleDetector
+    return EnsembleDetector.load(MODELS / ENSEMBLE_DIR, device="cpu")
+
+
+def run_ensemble_analysis(code: str) -> str:
+    """Genel karar: uc modelin birlesimi (olasiliklar val'de kalibre)."""
+    if not is_ensemble_available():
+        return "⚠️ Topluluk modeli henüz eğitilmedi"
+    try:
+        det = get_ensemble_detector()
+        prob = float(det.predict_proba([code])[0])
+        return format_decision(prob, det.threshold)
+    except Exception as e:
+        return f"Topluluk analizi sırasında hata oluştu: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +279,8 @@ def analyze_code(code: str):
         return (
             error_box,
             "", "", None,
-            "", "", "<div style='color: #ef4444; padding: 12px;'>Geçerli bir Python fonksiyonu girilmedi.</div>"
+            "", "", "<div style='color: #ef4444; padding: 12px;'>Geçerli bir Python fonksiyonu girilmedi.</div>",
+            "",
         )
 
     error_box = ("✅ Python fonksiyonu başarıyla doğrulandı. Modeller eğitimdeki gibi "
@@ -251,11 +289,13 @@ def analyze_code(code: str):
     norm = normalize_code(code)
     xgb_dec, xgb_info, xgb_fig = run_xgb_analysis(norm)
     cb_dec, cb_info, cb_html = run_codebert_analysis(norm)
+    ens_dec = run_ensemble_analysis(norm)
 
     return (
         error_box,
         xgb_dec, xgb_info, xgb_fig,
-        cb_dec, cb_info, cb_html
+        cb_dec, cb_info, cb_html,
+        ens_dec,
     )
 
 
@@ -263,28 +303,41 @@ def analyze_code(code: str):
 # Hazir Kod Ornekleri
 # ---------------------------------------------------------------------------
 
-# Ayni gorev icin gercek bir cift (veri setinden, id 9b53ed3d4045).
-# Insan: CodeSearchNet, jaraco/jaraco.itertools.
-EXAMPLE_HUMAN = '''def make_rows(num_columns, seq):
-    num_rows, partial = divmod(len(seq), num_columns)
-    if partial:
-        num_rows += 1
+# Ornekler TEST kumesinden (yandex/yandex-tank deposu egitim ve dogrulamada yok).
+# Ayni gorev icin gercek bir cift (pair_id b6a25170fd12); topluluk modeli ikisini de dogru biliyor.
+EXAMPLE_HUMAN = '''def pid_exists(pid):
+    if pid < 0:
+        return False
     try:
-        result = more_itertools.grouper(seq, num_rows)
-    except TypeError:
-        result = more_itertools.grouper(num_rows, seq)
-    return zip(*result)
+        os.kill(pid, 0)
+    except OSError as exc:
+        logging.debug("No process[%s]: %s", exc.errno, exc)
+        return exc.errno == errno.EPERM
+    else:
+        p = psutil.Process(pid)
+        return p.status != psutil.STATUS_ZOMBIE
 '''
 
-# AI: deepseek-coder 6.7B, sicaklik 0.5, ayni imza ve docstring ile uretildi.
-EXAMPLE_AI = '''def make_rows(num_columns, seq):
-    iter_seq = iter(seq)
-    while True:
-        row = tuple(next(iter_seq, None) for _ in range(num_columns))
-        if None not in row:
-            yield row
-        else:
-            break
+# AI: deepseek-coder 6.7B, ayni imza ve docstring ile uretildi.
+EXAMPLE_AI = '''def pid_exists(pid):
+    if pid < 0:
+        raise ValueError("Negative PIDs are not valid")
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    else:
+        return True
+'''
+
+# Zor ornek (pair_id e5ed920f3855): INSAN yazimi ama modeller AI saniyor. Kisa ve sade
+# fonksiyonlarda insan ve AI kodu neredeyse ayni; sinirliligi gostermek icin bilerek eklendi.
+EXAMPLE_HARD_HUMAN = '''def count_matched_codes(codes_regex, codes_dict):
+    total = 0
+    for code, count in codes_dict.items():
+        if codes_regex.match(str(code)):
+            total += count
+    return total
 '''
 
 EXAMPLE_INVALID = '''def broken_function(x, y
@@ -302,7 +355,8 @@ def create_demo() -> gr.Blocks:
         gr.Markdown(
             """
             # 🔍 Yapay Zeka Kaynaklı Python Kodu Tespiti
-            AST Stilometrisi (**XGBoost + SHAP**) ve Derin Öğrenme (**CodeBERT + LIME**) Modelleri ile Kod Doğrulama ve Açıklanabilirlik Demosu
+            AST Stilometrisi (**XGBoost + SHAP**) ve Derin Öğrenme (**UniXcoder + LIME**) Modelleri ile Kod Doğrulama ve Açıklanabilirlik Demosu.
+            Genel karar üç modelin (XGBoost+perplexity, UniXcoder, n-gram) birleşimidir; olasılıklar kalibre edilmiştir.
             """
         )
 
@@ -324,11 +378,16 @@ def create_demo() -> gr.Blocks:
                     examples=[
                         [EXAMPLE_HUMAN],
                         [EXAMPLE_AI],
+                        [EXAMPLE_HARD_HUMAN],
                         [EXAMPLE_INVALID],
                     ],
+                    example_labels=["İnsan (test)", "AI (test)", "Zor örnek: insan, model yanılıyor",
+                                    "Geçersiz kod"],
                     inputs=[code_input],
                     label="Örnek Python Fonksiyonları",
                 )
+
+        ens_decision = gr.Textbox(label="Genel Karar (Topluluk Modeli)", interactive=False)
 
         with gr.Row():
             # XGBoost Kolonu
@@ -340,7 +399,7 @@ def create_demo() -> gr.Blocks:
 
             # CodeBERT Kolonu
             with gr.Column(scale=1):
-                gr.Markdown("### 🧠 CodeBERT (Transformer + LIME)")
+                gr.Markdown("### 🧠 UniXcoder (Transformer + LIME)")
                 cb_decision = gr.Textbox(label="Karar & Sonuç", interactive=False)
                 cb_info = gr.Markdown(label="Eşik & Olasılık")
                 cb_html = gr.HTML(label="LIME Token Önem Açıklaması")
@@ -353,16 +412,18 @@ def create_demo() -> gr.Blocks:
                 status_output,
                 xgb_decision, xgb_info, xgb_plot,
                 cb_decision, cb_info, cb_html,
+                ens_decision,
             ],
         )
 
         clear_btn.click(
-            fn=lambda: ("", "Kod giriş alanı temizlendi.", "", "", None, "", "", ""),
+            fn=lambda: ("", "Kod giriş alanı temizlendi.", "", "", None, "", "", "", ""),
             inputs=[],
             outputs=[
                 code_input, status_output,
                 xgb_decision, xgb_info, xgb_plot,
                 cb_decision, cb_info, cb_html,
+                ens_decision,
             ],
         )
 
