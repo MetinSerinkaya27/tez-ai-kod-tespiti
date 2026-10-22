@@ -176,3 +176,40 @@ def test_predict_proba_sira_ve_aralik():
     assert p.shape == (3,) and ((p >= 0) & (p <= 1)).all()
     p_tek = np.array([det.predict_proba([c])[0] for c in codes])
     assert np.allclose(p, p_tek, atol=1e-4)
+
+
+def test_sicaklik_olcekleme_siralamayi_korur_ve_asiri_guveni_azaltir():
+    import numpy as np
+    from tez.codebert import fit_temperature, rescale_threshold
+
+    rng = np.random.default_rng(0)
+    y = rng.integers(0, 2, 2000)
+    # Gercek olasilik sigmoid(z); model ise 4 kat asiri emin: sigmoid(4z).
+    z = rng.normal(0, 1, 2000) + (y * 2 - 1) * 0.8
+    p_true = 1 / (1 + np.exp(-z))
+    y = (rng.random(2000) < p_true).astype(int)
+    p_model = 1 / (1 + np.exp(-4 * z))
+    t = fit_temperature(p_model, y)
+    assert 3.0 < t < 5.5
+    thr = 0.8
+    t_thr = rescale_threshold(thr, t)
+    p_cal = 1 / (1 + np.exp(-np.log(p_model / (1 - p_model)) / t))
+    assert ((p_model >= thr) == (p_cal >= t_thr)).all()
+    assert np.argsort(p_model).tolist() == np.argsort(p_cal).tolist()
+
+
+def test_platt_kaymayi_duzeltir_ve_kararlari_korur():
+    import numpy as np
+    from tez.codebert import fit_platt, rescale_threshold
+
+    rng = np.random.default_rng(1)
+    z = rng.normal(0, 1.5, 3000)
+    y = (rng.random(3000) < 1 / (1 + np.exp(-z))).astype(int)
+    # Model asiri emin (x3) ve AI yonune kaymis (+2).
+    p_model = 1 / (1 + np.exp(-(3 * z + 2)))
+    t, b = fit_platt(p_model, y)
+    d = np.log(p_model / (1 - p_model))
+    p_cal = 1 / (1 + np.exp(-(d / t + b)))
+    assert abs(p_cal.mean() - y.mean()) < 0.02
+    thr = 0.9
+    assert ((p_model >= thr) == (p_cal >= rescale_threshold(thr, t, b))).all()

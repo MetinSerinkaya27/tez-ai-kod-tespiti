@@ -196,6 +196,49 @@ def save_bundle(model, tokenizer, model_dir: str | Path, config: dict) -> None:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
+def _clip_logit(p: np.ndarray) -> np.ndarray:
+    p = np.clip(np.asarray(p, dtype=np.float64), 1e-7, 1 - 1e-7)
+    return np.log(p / (1 - p))
+
+
+def fit_temperature(probs, labels, grid: np.ndarray | None = None) -> float:
+    """Val olasiliklarindan (T=1) negatif log-olabilirligi en kucuk sicakligi bulur.
+
+    Iki sinifli softmax'ta P(AI) = sigmoid(z1 - z0); T ile bolmek bu farki
+    olcekler. Donusum monoton oldugu icin siralama (AUC) degismez.
+    """
+    d = _clip_logit(probs)
+    y = np.asarray(labels, dtype=np.float64)
+    grid = np.exp(np.linspace(np.log(0.25), np.log(50.0), 400)) if grid is None else grid
+
+    def nll(t: float) -> float:
+        p = np.clip(1 / (1 + np.exp(-d / t)), 1e-12, 1 - 1e-12)
+        return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+
+    return float(grid[int(np.argmin([nll(t) for t in grid]))])
+
+
+def fit_platt(probs, labels) -> tuple[float, float]:
+    """Val olasiliklarindan (kalibrasyonsuz) Platt olcekleme: (T, b), P = sigmoid(d/T + b).
+
+    Sicaklik tek basina asiri guveni duzeltir ama sinifa dogru kaymayi duzeltemez;
+    b terimi bu kaymayi giderir. Egim pozitif kaldigi surece siralama korunur.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    d = _clip_logit(probs).reshape(-1, 1)
+    lr = LogisticRegression(C=1e6, max_iter=1000).fit(d, np.asarray(labels, dtype=int))
+    a, b = float(lr.coef_[0, 0]), float(lr.intercept_[0])
+    if a <= 0:
+        raise ValueError("Platt egimi pozitif degil; kalibrasyon siralamayi bozardi")
+    return 1.0 / a, b
+
+
+def rescale_threshold(threshold: float, temperature: float, bias: float = 0.0) -> float:
+    """Kalibrasyonsuz esigi kalibre olasilik olcegine tasir (ayni kararlari verir)."""
+    return float(1 / (1 + np.exp(-(_clip_logit([threshold])[0] / temperature + bias))))
+
+
 def load_bundle_config(model_dir: str | Path) -> dict:
     path = Path(model_dir) / CONFIG_NAME
     if not path.exists():
@@ -216,6 +259,10 @@ class CodeBertDetector:
         self.trunc = self.config.get("trunc", "head_tail")
         self.head_frac = float(self.config.get("head_frac", DEFAULT_HEAD_FRAC))
         self.threshold = float(self.config.get("threshold", 0.5))
+        # Platt olcekleme (05b_calibrate.py, val'de ogrenilir): P = sigmoid(d / T + b),
+        # d = logit farki. T=1, b=0 kalibrasyonsuz softmax'a esittir.
+        self.temperature = float(self.config.get("temperature", 1.0))
+        self.bias = float(self.config.get("calib_bias", 0.0))
 
     @classmethod
     def from_dir(cls, model_dir: str | Path, device: str = "cpu", **model_kwargs) -> "CodeBertDetector":
@@ -243,7 +290,8 @@ class CodeBertDetector:
             batch = pad_batch([seqs[i] for i in idx], self.tokenizer.pad_token_id)
             batch = {k: v.to(self.device) for k, v in batch.items()}
             logits = self.model(**batch).logits.float()
-            out[idx] = torch.softmax(logits, dim=-1)[:, 1].cpu().numpy()
+            d = logits[:, 1] - logits[:, 0]
+            out[idx] = torch.sigmoid(d / self.temperature + self.bias).cpu().numpy()
         return out
 
     def predict(self, codes: Sequence[str], batch_size: int = 32) -> np.ndarray:
