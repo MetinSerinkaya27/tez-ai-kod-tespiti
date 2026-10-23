@@ -55,7 +55,7 @@ STEPS = [
                                  "--model-dir", "models/xgb_ppl", "--name", "xgb_ppl"], False),
     ("05_codebert", ["scripts/05_train_codebert.py", "--device", "cuda", "--amp", "bf16",
                      "--max-length", "512", "--batch-size", "4", "--grad-accum", "8",
-                     "--grad-checkpointing", "--epochs", "3", "--lime-n", "5",
+                     "--grad-checkpointing", "--epochs", "5", "--lime-n", "5",
                      "--onnx", "--quantize"], False),
     # Olasiliklar val'de Platt olceklemesiyle kalibre edilir (AUC ve kararlar degismez).
     ("05b_kalibre_codebert", ["scripts/05b_calibrate.py", "--model-dir", "models/codebert"], False),
@@ -65,7 +65,7 @@ STEPS = [
     ("05_unixcoder", ["scripts/05_train_codebert.py", "--base-model", "microsoft/unixcoder-base",
                       "--name", "unixcoder", "--device", "cuda", "--amp", "bf16",
                       "--max-length", "512", "--batch-size", "4", "--grad-accum", "8",
-                      "--grad-checkpointing", "--epochs", "3", "--lime-n", "5",
+                      "--grad-checkpointing", "--epochs", "5", "--lime-n", "5",
                       "--onnx", "--quantize"], False),
     ("05b_kalibre_unixcoder", ["scripts/05b_calibrate.py", "--model-dir", "models/unixcoder"], False),
     ("06_eval_unixcoder", ["scripts/06_evaluate.py", "--model", "codebert",
@@ -89,17 +89,19 @@ STEPS = [
     ("06_eval_ensemble", ["scripts/06_evaluate.py", "--model", "ensemble",
                           "--skip-cv", "--skip-cross-source"], False),
     ("08_gercek_dunya_ensemble", ["scripts/08_eval_real_world.py", "--model", "ensemble"], False),
-    # Ana model: UniXcoder'li topluluk (demo bunu kullanir).
-    ("09_ensemble_unix", ["scripts/09_ensemble.py", "--device", "cuda",
-                          "--members", "xgb", "codebert", "ngram", "--xgb-dir", "models/xgb_ppl",
-                          "--codebert-dir", "models/unixcoder", "--ngram-dir", "models/ngram",
-                          "--name", "ensemble_unix"], False),
-    ("06_eval_ensemble_unix", ["scripts/06_evaluate.py", "--model", "ensemble",
-                               "--model-dir", "models/ensemble_unix", "--name", "ensemble_unix",
-                               "--skip-cv", "--skip-cross-source"], False),
-    ("08_gercek_dunya_ensemble_unix", ["scripts/08_eval_real_world.py", "--model", "ensemble",
-                                       "--model-dir", "models/ensemble_unix",
-                                       "--name", "ensemble_unix"], False),
+    # Ana model: dort uyeli topluluk (XGB+ppl, CodeBERT, UniXcoder, n-gram). Val cross-fit'te
+    # uc uyeliden iyi (AUC 0.9499 / 0.9493, dogruluk 0.894 / 0.890); demo bunu kullanir.
+    ("09_ensemble_final", ["scripts/09_ensemble.py", "--device", "cuda",
+                           "--members", "xgb", "codebert", "unixcoder", "ngram",
+                           "--xgb-dir", "models/xgb_ppl", "--codebert-dir", "models/codebert",
+                           "--unixcoder-dir", "models/unixcoder", "--ngram-dir", "models/ngram",
+                           "--name", "ensemble_final"], False),
+    ("06_eval_ensemble_final", ["scripts/06_evaluate.py", "--model", "ensemble",
+                                "--model-dir", "models/ensemble_final", "--name", "ensemble_final",
+                                "--skip-cv", "--skip-cross-source"], False),
+    ("08_gercek_dunya_ensemble_final", ["scripts/08_eval_real_world.py", "--model", "ensemble",
+                                        "--model-dir", "models/ensemble_final",
+                                        "--name", "ensemble_final"], False),
 ]
 
 

@@ -65,6 +65,7 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="uyeler (varsayilan: mevcut olan xgb/codebert/ngram'in hepsi)")
     ap.add_argument("--xgb-dir", type=Path, default=None, help="varsayilan <models>/xgb")
     ap.add_argument("--codebert-dir", type=Path, default=None, help="varsayilan <models>/codebert")
+    ap.add_argument("--unixcoder-dir", type=Path, default=None, help="varsayilan <models>/unixcoder")
     ap.add_argument("--ngram-dir", type=Path, default=None, help="varsayilan <models>/ngram")
     ap.add_argument("--second-kind", choices=MEMBER_KINDS, default=None,
                     help="eski arayuz: xgb + bu tur (verilirse --members yok sayilir)")
@@ -83,7 +84,8 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def resolve_specs(args: argparse.Namespace, root_models: Path) -> dict[str, dict]:
     """Uye adlari -> {"kind", "dir"}; eksik uyeler uyariyla atlanir (en az 2 gerekir)."""
-    dirs = {"xgb": args.xgb_dir, "codebert": args.codebert_dir, "ngram": args.ngram_dir}
+    dirs = {"xgb": args.xgb_dir, "codebert": args.codebert_dir,
+            "unixcoder": args.unixcoder_dir, "ngram": args.ngram_dir}
     if args.second_kind:  # eski iki uyeli arayuz: eksik uye hatadir
         name = args.second_name or args.second_kind
         if name == "xgb":

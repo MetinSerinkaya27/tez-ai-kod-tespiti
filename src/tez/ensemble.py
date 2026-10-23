@@ -35,7 +35,10 @@ from tez.paths import SEED
 EPS = 1e-6
 DEFAULT_C = 1.0
 METHODS = ("mean", "logistic")
-MEMBER_KINDS = ("xgb", "codebert", "ngram")
+# unixcoder, CodeBERT ile ayni dedektorle yuklenir; ikisi farkli hatalar yaptigi
+# icin toplulukta birlikte kullanilabilir.
+MEMBER_KINDS = ("xgb", "codebert", "unixcoder", "ngram")
+TRANSFORMER_KINDS = ("codebert", "unixcoder")
 CONFIG_NAME = "ensemble.json"
 OPTIMISM_NOTE = (
     "Birlestirici agirliklari ve esik val'de ogrenildi; alt modellerin esik/erken "
@@ -200,7 +203,7 @@ def load_member(kind: str, model_dir: str | Path, device: str = "cpu"):
             if torch.cuda.is_available():
                 det.meta["ppl_device"] = "cuda"
         return XGBCodeDetector(det)
-    if kind == "codebert":
+    if kind in TRANSFORMER_KINDS:
         from tez.codebert import CodeBertDetector  # torch/transformers burada yuklenir
         return CodeBertDetector.from_dir(model_dir, device=device)
     if kind == "ngram":
@@ -213,7 +216,7 @@ def member_exists(kind: str, model_dir: str | Path) -> bool:
     d = Path(model_dir)
     if kind == "xgb":
         return (d / "meta.json").exists() and (d / "model.json").exists()
-    if kind == "codebert":
+    if kind in TRANSFORMER_KINDS:
         return (d / "config.json").exists()
     if kind == "ngram":
         return (d / "ngram.joblib").exists()

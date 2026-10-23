@@ -79,8 +79,9 @@ def is_xgb_available() -> bool:
 
 # Test ve gercek dunya setinde en iyi tek model UniXcoder; yoksa CodeBERT kullanilir.
 TRANSFORMER_DIRS = ("unixcoder", "codebert")
-# Genel karar: XGBoost+perplexity, UniXcoder ve n-gram'in val'de ogrenilmis birlesimi.
-ENSEMBLE_DIR = "ensemble_unix"
+# Genel karar: XGBoost+perplexity, CodeBERT, UniXcoder ve n-gram'in val'de ogrenilmis
+# birlesimi; yoksa uc uyeli eski topluluk kullanilir.
+ENSEMBLE_DIRS = ("ensemble_final", "ensemble_unix")
 
 
 def transformer_dir() -> Path | None:
@@ -97,8 +98,15 @@ def is_codebert_available() -> bool:
     return transformer_dir() is not None
 
 
+def ensemble_dir() -> Path | None:
+    for name in ENSEMBLE_DIRS:
+        if (MODELS / name / "ensemble.json").exists():
+            return MODELS / name
+    return None
+
+
 def is_ensemble_available() -> bool:
-    return (MODELS / ENSEMBLE_DIR / "ensemble.json").exists()
+    return ensemble_dir() is not None
 
 
 @lru_cache(maxsize=1)
@@ -119,7 +127,7 @@ def get_codebert_detector():
 def get_ensemble_detector():
     """Topluluk modelini CPU uzerinde yukler (ilk cagrida dil modeli de yuklenir)."""
     from tez.ensemble import EnsembleDetector
-    return EnsembleDetector.load(MODELS / ENSEMBLE_DIR, device="cpu")
+    return EnsembleDetector.load(ensemble_dir(), device="cpu")
 
 
 def run_ensemble_analysis(code: str) -> str:
@@ -376,7 +384,7 @@ def create_demo() -> gr.Blocks:
             """
             # 🔍 Yapay Zeka Kaynaklı Python Kodu Tespiti
             AST Stilometrisi (**XGBoost + SHAP**) ve Derin Öğrenme (**UniXcoder + LIME**) Modelleri ile Kod Doğrulama ve Açıklanabilirlik Demosu.
-            Genel karar üç modelin (XGBoost+perplexity, UniXcoder, n-gram) birleşimidir; olasılıklar kalibre edilmiştir.
+            Genel karar dört modelin (XGBoost+perplexity, CodeBERT, UniXcoder, n-gram) birleşimidir; olasılıklar kalibre edilmiştir.
             """
         )
 
