@@ -5,7 +5,7 @@ devam eder. Uretim adimlari zaten kaldigi yerden devam ediyor; sonraki adimlar
 bittikce RUN_STATE dosyasina yazilir ve tekrar calistirilmaz (bastan calistirmak
 icin dosyayi sil). Calisirken Windows'un uykuya gecmesi engellenir.
 
-Kullanim: uv run python scripts/run_all.py
+Kullanim: uv run python scripts/run_all.py [--bastan]
 """
 from __future__ import annotations
 
@@ -89,6 +89,17 @@ STEPS = [
     ("06_eval_ensemble", ["scripts/06_evaluate.py", "--model", "ensemble",
                           "--skip-cv", "--skip-cross-source"], False),
     ("08_gercek_dunya_ensemble", ["scripts/08_eval_real_world.py", "--model", "ensemble"], False),
+    # Ana model: UniXcoder'li topluluk (demo bunu kullanir).
+    ("09_ensemble_unix", ["scripts/09_ensemble.py", "--device", "cuda",
+                          "--members", "xgb", "codebert", "ngram", "--xgb-dir", "models/xgb_ppl",
+                          "--codebert-dir", "models/unixcoder", "--ngram-dir", "models/ngram",
+                          "--name", "ensemble_unix"], False),
+    ("06_eval_ensemble_unix", ["scripts/06_evaluate.py", "--model", "ensemble",
+                               "--model-dir", "models/ensemble_unix", "--name", "ensemble_unix",
+                               "--skip-cv", "--skip-cross-source"], False),
+    ("08_gercek_dunya_ensemble_unix", ["scripts/08_eval_real_world.py", "--model", "ensemble",
+                                       "--model-dir", "models/ensemble_unix",
+                                       "--name", "ensemble_unix"], False),
 ]
 
 
@@ -127,6 +138,10 @@ def unload_ollama() -> None:
 
 def main() -> None:
     keep_awake()
+    # --bastan: veri degisti (orn. yeni AI uretimi), tum adimlar yeniden calisir.
+    if "--bastan" in sys.argv[1:] and RUN_STATE.exists():
+        RUN_STATE.rename(RUN_STATE.with_name(f"run_state_{datetime.now():%Y%m%d_%H%M}.json"))
+        log("--bastan: onceki durum yedeklendi, tum adimlar yeniden calisacak.")
     state = json.loads(RUN_STATE.read_text(encoding="utf-8")) if RUN_STATE.exists() else {}
 
     while other_generator_running():

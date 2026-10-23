@@ -70,6 +70,8 @@ def parse_args(argv=None) -> argparse.Namespace:
                     help="eski arayuz: xgb + bu tur (verilirse --members yok sayilir)")
     ap.add_argument("--second-dir", type=Path, default=None, help="varsayilan <models>/<kind>")
     ap.add_argument("--second-name", default=None, help="varsayilan --second-kind")
+    ap.add_argument("--name", default="ensemble",
+                    help="model/cikti dizini adi (orn. ensemble_unix)")
     ap.add_argument("--method", choices=METHODS, default="logistic",
                     help="kaydedilen dedektorun birlestiricisi")
     ap.add_argument("--C", type=float, default=DEFAULT_C, help="LR L2 ters guclu (sabit)")
@@ -161,8 +163,8 @@ def main(argv=None) -> None:
     t0 = time.time()
     root_models = (args.out_dir / "models") if args.out_dir else MODELS
     root_out = (args.out_dir / "outputs") if args.out_dir else OUTPUTS
-    out = root_out / "ensemble"
-    ens_dir = root_models / "ensemble"
+    out = root_out / args.name
+    ens_dir = root_models / args.name
     specs = resolve_specs(args, root_models)
 
     recs = {}
