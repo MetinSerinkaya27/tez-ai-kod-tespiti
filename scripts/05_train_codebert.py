@@ -61,6 +61,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--name", default="codebert",
                    help="model/cikti dizini adi (orn. unixcoder ile 'unixcoder')")
     p.add_argument("--epochs", type=int, default=3)
+    p.add_argument("--label-smoothing", type=float, default=0.0,
+                   help="egitim kaybinda etiket yumusatma (orn. 0.1)")
     p.add_argument("--lr", type=float, default=2e-5)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--warmup", type=float, default=0.1, help="Isinma orani (toplam adimin)")
@@ -178,7 +180,7 @@ def main() -> None:
 
     cfg = {
         "base_model": args.base_model, "max_length": args.max_length, "trunc": args.trunc,
-        "head_frac": args.head_frac, "seed": args.seed, "lr": args.lr, "epochs": args.epochs,
+        "head_frac": args.head_frac, "seed": args.seed, "lr": args.lr, "epochs": args.epochs, "label_smoothing": args.label_smoothing,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum, "amp": amp,
         "select_metric": args.select_metric, "threshold": 0.5,
     }
@@ -194,7 +196,9 @@ def main() -> None:
             batch = {k: v.to(device) for k, v in batch.items()}
             with autocast_ctx(device, amp):
                 logits = model(input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]).logits
-            loss = torch.nn.functional.cross_entropy(logits.float(), batch["labels"])
+            # Etiket yumusatma: hedefi %100 yerine 1-eps kesinlikte verir (asiri guven / ezber azalir).
+            loss = torch.nn.functional.cross_entropy(logits.float(), batch["labels"],
+                                                     label_smoothing=args.label_smoothing)
             scaler.scale(loss / args.grad_accum).backward()
             run_loss += loss.item() * len(logits); run_n += len(logits); n_seen += len(logits)
             if (i + 1) % args.grad_accum == 0 or i + 1 == len(tr_loader):
