@@ -165,6 +165,11 @@ def token_stats(
             logits = model(input_ids=inp, attention_mask=att).logits
             for j, r in zip(idx, sequence_stats(logits, inp, att)):
                 rows[j] = r
+            # Degisken uzunluklu yiginlar onbellekte parcalanip 6 GB'i dolduruyordu
+            # (tek yigin ~2 GB'ta kaliyor); her yigindan sonra bos blok iade edilir.
+            del logits
+            if str(dev).startswith("cuda"):
+                torch.cuda.empty_cache()
     df = pd.DataFrame(rows, columns=PPL_FEATURES).astype(float)
     df.attrs["n_truncated"] = int(n_trunc)
     return df

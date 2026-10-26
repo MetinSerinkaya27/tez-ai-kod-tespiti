@@ -47,7 +47,7 @@ STEPS = [
     ("07_gercek_dunya_ai", ["scripts/07_real_world.py", "ai"], True),
     ("ollama_bosalt", None, True),
     # Dil modeli (codegen-350M) perplexity ozellikleri; GPU Ollama'dan bosaldiktan sonra.
-    ("03c_perplexity", ["scripts/03c_perplexity.py", "--device", "cuda", "--batch-size", "8"], False),
+    ("03c_perplexity", ["scripts/03c_perplexity.py", "--device", "cuda", "--batch-size", "4"], False),
     ("04_xgb_ppl", ["scripts/04_train_xgb.py", "--with-ppl"], False),
     ("06_eval_xgb_ppl", ["scripts/06_evaluate.py", "--model", "xgb", "--model-dir", "models/xgb_ppl",
                          "--name", "xgb_ppl", "--skip-cv", "--skip-cross-source"], False),
