@@ -41,11 +41,17 @@ def compute_metrics(y_true, y_prob, threshold: float = 0.5) -> dict:
 
 
 def best_threshold(y_true, y_prob) -> float:
-    """F1'i en yukseltan esigi dondurur (yalnizca dogrulama kumesinde kullan)."""
+    """Dengeli dogrulugu (AI yakalama + insan dogru tanima) / 2 en yukselten esik.
+
+    F1 pozitif sinifi (AI) one cikardigi icin insan kodunu yanlislikla AI sayma
+    orani yuksek kaliyordu; iki hata turu de esit onemli. Yalnizca val'de kullan.
+    """
     y_true = np.asarray(y_true, dtype=int)
     y_prob = np.asarray(y_prob, dtype=float)
     candidates = np.unique(np.concatenate([y_prob, [0.5]]))
-    scores = [f1_score(y_true, (y_prob >= t).astype(int), zero_division=0) for t in candidates]
+    pos, neg = y_true == 1, y_true == 0
+    scores = [((y_prob[pos] >= t).mean() if pos.any() else 0.0)
+              + ((y_prob[neg] < t).mean() if neg.any() else 0.0) for t in candidates]
     return float(candidates[int(np.argmax(scores))])
 
 
