@@ -51,6 +51,12 @@ def main() -> None:
     print(f"  atilan ai_insana_cok_benzer (seq_ratio_body > {MAX_BODY_SIMILARITY}): {n_similar}")
 
     splits = split_by_repo(records, seed=SEED)
+    # Dis egitim verisi (03d_droid_train.py; buyuk modellerin kodu) yalnizca egitime eklenir.
+    ext = AI_JSONL.parent / "external_train.jsonl"
+    if ext.exists():
+        extra = load_jsonl(ext)
+        splits["train"] = splits["train"] + extra
+        print(f"  ek egitim: {ext.name} ({len(extra)} kayit, yalnizca train)")
     check_splits(splits)
     for name, recs in splits.items():
         write_jsonl(OUTPUTS[name], recs)
