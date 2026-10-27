@@ -277,7 +277,7 @@ class CodeBertDetector:
         return cls(model, tok, cfg, device)
 
     @torch.no_grad()
-    def predict_proba(self, codes: Sequence[str], batch_size: int = 32) -> np.ndarray:
+    def predict_proba(self, codes: Sequence[str], batch_size: int = 8) -> np.ndarray:
         """Her kod icin AI (label=1) olasiligi; girdi sirasini korur."""
         if len(codes) == 0:
             return np.zeros(0, dtype=np.float32)
